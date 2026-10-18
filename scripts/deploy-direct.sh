@@ -129,13 +129,19 @@ log "payload size on disk: $(du -sh "$RELEASE" | cut -f1)"
 # it along would be a second chance for the two to disagree, and would put the
 # resolved value into the transcript.
 # ---------------------------------------------------------------------------
+# The project id is explicit: bws-exec defaults to a different project in the
+# same organization, so without it every fetch reports "no secrets with prefix
+# sudobot_" and the service crash-loops. Every other unit on this host passes it
+# for the same reason.
+BWS_PROJECT="4a19cf5f-e92b-4373-ad43-b4e500b8070a"
+
 log "applying migrations"
 sudo -u "$SERVICE_USER" --preserve-env=BWS_ACCESS_TOKEN \
-  /usr/local/bin/bws-exec "$APP" "$RELEASE/bin/migrate" up
+  /usr/local/bin/bws-exec "$APP" --project "$BWS_PROJECT" "$RELEASE/bin/migrate" up
 
 log "seeding the permission catalog"
 sudo -u "$SERVICE_USER" --preserve-env=BWS_ACCESS_TOKEN \
-  /usr/local/bin/bws-exec "$APP" "$RELEASE/bin/bootstrap"
+  /usr/local/bin/bws-exec "$APP" --project "$BWS_PROJECT" "$RELEASE/bin/bootstrap"
 
 # ---------------------------------------------------------------------------
 # Units, installed from the release so host state is never the source of truth.

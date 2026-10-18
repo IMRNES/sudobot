@@ -21,7 +21,10 @@ WorkingDirectory=/opt/sudobot
 #
 # Adding a variable is a `bws secret create sudobot_<KEY> <value>` and nothing
 # else: no unit edit, no file on the host.
-ExecStart=/usr/local/bin/bws-exec sudobot /opt/sudobot/current/bin/gateway
+# `--project` is explicit because bws-exec defaults to the OTHER project in
+# this Bitwarden organization (orangevps), which would make every fetch
+# report 'no secrets with prefix sudobot_' and crash-loop the unit.
+ExecStart=/usr/local/bin/bws-exec sudobot --project 4a19cf5f-e92b-4373-ad43-b4e500b8070a /opt/sudobot/current/bin/gateway
 
 Restart=always
 RestartSec=5

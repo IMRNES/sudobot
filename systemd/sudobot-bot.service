@@ -14,7 +14,10 @@ WorkingDirectory=/opt/sudobot
 # connection and must survive an API redeploy, and a panic in a slash command
 # must not take the dashboard down with it. The two processes share one database
 # and that is the whole integration surface.
-ExecStart=/usr/local/bin/bws-exec sudobot /opt/sudobot/current/bin/bot
+# `--project` is explicit because bws-exec defaults to the OTHER project in
+# this Bitwarden organization (orangevps), which would make every fetch
+# report 'no secrets with prefix sudobot_' and crash-loop the unit.
+ExecStart=/usr/local/bin/bws-exec sudobot --project 4a19cf5f-e92b-4373-ad43-b4e500b8070a /opt/sudobot/current/bin/bot
 
 Restart=always
 RestartSec=5
