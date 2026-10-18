@@ -1,6 +1,6 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router"
-import { ArrowRight, Coins, ShieldCheck, Sparkles, TrendingUp } from "lucide-react"
-import { Button } from "#/components/ui/button.tsx"
+import { createFileRoute, redirect } from "@tanstack/react-router"
+import { Coins, ShieldCheck, Sparkles, TrendingUp } from "lucide-react"
+import { SignInButton } from "#/components/auth/sign-in-button.tsx"
 import { Card, CardContent } from "#/components/ui/card.tsx"
 import { sessionStore } from "#/libs/auth/session.ts"
 
@@ -46,12 +46,7 @@ function LandingPage() {
 		<div className="mx-auto flex min-h-svh w-full max-w-5xl flex-col px-6 py-16">
 			<header className="flex items-center justify-between">
 				<span className="text-sm font-semibold tracking-tight">sudobot</span>
-				<Button asChild size="sm">
-					<Link to="/dashboard">
-						Open dashboard
-						<ArrowRight />
-					</Link>
-				</Button>
+				<SignInButton size="sm" variant="outline" label="Open dashboard" />
 			</header>
 
 			<section className="flex flex-1 flex-col justify-center gap-6 py-20">
@@ -67,12 +62,7 @@ function LandingPage() {
 					holding the keys to everything.
 				</p>
 				<div className="flex flex-wrap gap-3 pt-2">
-					<Button asChild size="lg">
-						<Link to="/dashboard">
-							Sign in with Discord
-							<ArrowRight />
-						</Link>
-					</Button>
+					<SignInButton />
 				</div>
 			</section>
 
