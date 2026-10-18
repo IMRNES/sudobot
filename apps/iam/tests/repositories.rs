@@ -29,7 +29,7 @@ use iam::domain::economy::{EconomyRepository, NewTransaction, ShopItem, Transact
 use iam::domain::guild::{GuildRepository, NewGuild};
 use iam::domain::user::{NewUser, UserRepository};
 use iam::infrastructure::repository::{
-    SeaOrmEconomyRepository, SeaOrmGuildRepository, SeaOrmUserRepository,
+    SeaOrmEconomyRepository, SeaOrmGuildRepository, SeaOrmLevelingRepository, SeaOrmUserRepository,
 };
 use iam::infrastructure::service::{Argon2PasswordService, JwtTokenService};
 
@@ -522,4 +522,153 @@ async fn a_token_pair_verifies_and_a_refresh_cannot_be_used_as_an_access_token()
             .is_err(),
         "a tampered token must not verify"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Leveling
+//
+// The reward table is the one place a constraint failure was silently read as
+// success: `ensure_guild_recorded` exists because `leveling_rewards.guild_id` is a
+// foreign key, and a missing parent used to arrive as a *conflict*, which an
+// idempotent writer counts as "already configured". These tests pin both halves.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "needs a database"]
+async fn a_reward_for_an_unknown_guild_is_a_missing_reference_not_a_conflict() {
+    use iam::domain::leveling::{LevelReward, LevelingRepository};
+
+    let Some(db) = connect().await else { return };
+    let leveling = SeaOrmLevelingRepository::new(db);
+
+    // A guild id that is deliberately never inserted, so the foreign key must
+    // reject the write.
+    let guild_id = unique_guild_id().saturating_add(7);
+
+    let result = leveling
+        .create_reward(LevelReward {
+            id: Uuid::new_v4(),
+            guild_id,
+            level: 0,
+            role_id: 123,
+            keep_on_demote: true,
+        })
+        .await;
+
+    let error = result.expect_err("the foreign key must reject a reward with no guild");
+
+    assert!(
+        !error.is_already_present(),
+        "a missing parent must not read as 'already configured': {error}"
+    );
+    assert!(
+        error.is_client_error(),
+        "a reference to a row that does not exist is the caller's mistake, not a 500"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a database"]
+async fn a_second_reward_at_the_same_level_is_a_conflict() {
+    use iam::domain::leveling::{LevelReward, LevelingRepository};
+
+    let Some(db) = connect().await else { return };
+    let guilds = SeaOrmGuildRepository::new(db.clone());
+    let leveling = SeaOrmLevelingRepository::new(db);
+
+    let guild_id = unique_guild_id().saturating_add(8);
+    seed_guild(&guilds, guild_id).await;
+
+    leveling
+        .create_reward(LevelReward {
+            id: Uuid::new_v4(),
+            guild_id,
+            level: 3,
+            role_id: 111,
+            keep_on_demote: true,
+        })
+        .await
+        .expect("the first reward inserts");
+
+    let error = leveling
+        .create_reward(LevelReward {
+            id: Uuid::new_v4(),
+            guild_id,
+            level: 3,
+            role_id: 222,
+            keep_on_demote: true,
+        })
+        .await
+        .expect_err("the unique index on (guild_id, level) rejects the second");
+
+    assert!(
+        error.is_already_present(),
+        "this is the case a re-run should treat as success: {error}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a database"]
+async fn a_profile_is_created_once_and_xp_accumulates() {
+    use iam::domain::leveling::{LevelCurve, LevelingRepository};
+
+    let Some(db) = connect().await else { return };
+    let guilds = SeaOrmGuildRepository::new(db.clone());
+    let leveling = SeaOrmLevelingRepository::new(db);
+
+    let guild_id = unique_guild_id().saturating_add(9);
+    seed_guild(&guilds, guild_id).await;
+
+    // The first message creates the row; a second must reuse it rather than
+    // violating the unique index on (guild_id, discord_user_id).
+    let first = leveling
+        .ensure_profile(guild_id, 4242)
+        .await
+        .expect("the first message creates a profile");
+    assert_eq!(first.level, 0);
+    assert_eq!(first.xp, 0);
+
+    let again = leveling
+        .ensure_profile(guild_id, 4242)
+        .await
+        .expect("a second message reuses the row");
+    assert_eq!(again.id, first.id, "the same profile, not a new one");
+
+    // Enough XP to cross the first level boundary, so the curve is exercised against
+    // real storage rather than only in the domain's own test.
+    //
+    // The arguments are the *position* the use case computed — `level` plus the XP
+    // remainder inside that level — not the amount just gained. That distinction is
+    // the whole reason `total_xp` is stored separately, so it is spelled out here:
+    // the first boundary needs `xp_for_level(0)` and leaves no remainder.
+    let boundary = LevelCurve::Mrn.xp_for_level(0);
+    let updated = leveling
+        .add_xp(guild_id, 4242, 0, 1, true)
+        .await
+        .expect("xp accumulates");
+
+    assert_eq!(updated.level, 1);
+    assert_eq!(updated.message_count, 1, "the message count moves with it");
+    // `total_xp` is the member's position on the curve, which is what the
+    // leaderboard sorts on: here the cumulative requirement for level 1 with no
+    // remainder, not the 100 XP this one call contributed.
+    assert_eq!(
+        updated.total_xp,
+        LevelCurve::Mrn.total_xp_for_level(1),
+        "total xp is a curve position, so it does not reset when the level changes"
+    );
+    assert_eq!(
+        boundary,
+        LevelCurve::Mrn.total_xp_for_level(1),
+        "and for this curve the first boundary is the same number"
+    );
+
+    // A guild with no config row still levels: the defaults are what it runs on,
+    // which is what makes the bot work before anyone opens the dashboard.
+    let config = leveling
+        .find_config(guild_id)
+        .await
+        .expect("a missing config falls back to defaults");
+    assert!(config.enabled, "leveling is on by default");
+    assert!(config.stack_roles, "titles accumulate by default");
 }
