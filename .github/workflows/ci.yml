@@ -1,14 +1,23 @@
 name: CI
 
+# One suite, run once per change.
+#
+# `pull_request` runs it directly. A push to main does NOT: the deploy workflow
+# calls this file as its gate job, so the same steps run exactly once either way.
+# Triggering on both would run the whole suite twice for every main commit, and
+# two ways to reach the same conclusion is how the two drift apart.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_call:
 
-# A push that supersedes an in-flight run cancels it: the older commit's result is
-# no longer actionable, and leaving it running wastes the runner.
+# Cancel a superseded PR run: the older commit's result is no longer actionable.
+#
+# The group must be distinct when the deploy workflow calls us. Sharing the
+# caller's group would let `cancel-in-progress` abort the very run that invoked
+# this file, so the called case gets a group made unique by `run_id` — which is
+# how cancellation is switched off for it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.ref) || format('ci-call-{0}', github.run_id) }}
   cancel-in-progress: true
 
 env:

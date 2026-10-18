@@ -14,12 +14,13 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A push that supersedes an in-flight run cancels it: the older commit's result
-# is no longer actionable. The deploy job overrides this with its own group so a
-# half-applied deploy is never cancelled mid-flight.
+# Cancel a superseded PR run, but never a push to main: the deploy job inside it
+# may be mid-cutover, and cancelling that leaves the host between two releases.
+# Pushes to main are serialised by the deploy job's own `sudobot-deploy` group
+# instead.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -31,80 +32,16 @@ env:
   VPS_USER: ${{ secrets.VPS_USER }}
 
 jobs:
-  rust:
-    name: Rust
-    runs-on: ubuntu-latest
+  # The gate. `ci.yml` is called rather than copied: the check a deploy depends on
+  # and the check a PR shows are then the same file, so they cannot drift.
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
 
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: sudobot
-        ports:
-          - 5432:5432
-        # Without the health gate the migration step races the server's startup
-        # and fails with a connection refused that looks like a code problem.
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-    env:
-      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/sudobot
-      JWT_SECRET: ci-secret-that-is-long-enough-for-the-minimum-of-32-bytes
-      DISCORD_BOT_TOKEN: ci-placeholder
-      DISCORD_CLIENT_ID: ci-placeholder
-      DISCORD_CLIENT_SECRET: ci-placeholder
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      # Keyed on the lockfile: a dependency change invalidates it, a source
-      # change does not.
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ". -> target"
-
-      - name: Formatting
-        run: cargo fmt --all --check
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Unit tests
-        run: cargo test --workspace
-
-      - name: Apply migrations
-        run: cargo run -p migration -- up
-
-      # The seeding is idempotent, so running it twice is itself a check: a second
-      # run that changes anything means bootstrap is not safe to redeploy.
-      - name: Seed
-        run: |
-          cargo run -p bootstrap
-          cargo run -p bootstrap
-
-      # The tests a fake repository cannot make: real SQL, real constraints, and
-      # the two writes the application treats as atomic.
-      - name: Integration tests
-        run: cargo test --workspace -- --include-ignored
-
-      - name: Roll back every migration
-        run: cargo run -p migration -- down 8
-
-      - name: Re-apply them
-        run: cargo run -p migration -- up
-
-  web:
-    name: Web
+  web-artifact:
+    name: Build dashboard
+    needs: ci
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
@@ -122,19 +59,10 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Types
-        run: pnpm --filter web exec tsc --noEmit
-
-      - name: Lint and format
-        run: pnpm --filter web exec biome check .
-
-      # Also generates `routeTree.gen.ts`, so a route file the router plugin
-      # cannot parse fails here rather than at deploy time.
-      #
-      # `VITE_API_BASE_URL` is deliberately EMPTY for this build: the dashboard
-      # and the API are served from one origin, so relative requests are correct
-      # and CORS does not exist in production. Setting it to an absolute origin
-      # here would be the bug, not the fix.
+      # `VITE_API_BASE_URL` is deliberately EMPTY for this build: the dashboard and
+      # the API are served from one origin, so relative requests are correct and
+      # CORS does not exist in production. Setting it to an absolute origin here
+      # would be the bug, not the fix.
       - name: Build
         run: pnpm --filter web build
         env:
@@ -147,11 +75,11 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # The release build. Runs only on main: a PR gets the CI gate, not binaries.
+  # The release build. Runs only on main: a PR gets the gate, not binaries.
   # ---------------------------------------------------------------------------
   build:
     name: Build release payload
-    needs: [rust, web]
+    needs: [ci, web-artifact]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
