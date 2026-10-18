@@ -1,0 +1,49 @@
+[Unit]
+Description=sudobot API (dashboard backend)
+Documentation=https://github.com/IMRNES/sudobot
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sudobot
+Group=sudobot
+WorkingDirectory=/opt/sudobot
+
+# The binary is read through the `current` symlink so a rollback is one symlink
+# flip. The service is restarted explicitly by the deploy script after the flip;
+# systemd cannot notice a symlink change on its own.
+#
+# Environment comes from Bitwarden Secrets Manager, prefixed `sudobot_` in the
+# project. `bws-exec` fetches, exports and execs in one process — an
+# `EnvironmentFile=` would be read by systemd BEFORE any ExecStartPre ran, which
+# is the failure this wrapper exists to avoid.
+#
+# Adding a variable is a `bws secret create sudobot_<KEY> <value>` and nothing
+# else: no unit edit, no file on the host.
+ExecStart=/usr/local/bin/bws-exec sudobot /opt/sudobot/current/bin/gateway
+
+Restart=always
+RestartSec=5
+# A crash loop that never stops restarting is harder to notice than one that
+# gives up. Five failures in five minutes means configuration, not a transient.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# The API binds 8080 on every interface; Caddy is the only intended caller but
+# running behind it is what makes a localhost probe meaningful.
+Environment=RUST_LOG=info
+
+# Reasonable hardening for a service that only needs to talk to Postgres and
+# Discord. `ProtectSystem=full` still allows writes under /opt and /var.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sudobot-gateway
+
+[Install]
+WantedBy=multi-user.target

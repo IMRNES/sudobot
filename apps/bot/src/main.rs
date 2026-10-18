@@ -47,6 +47,7 @@ async fn main() -> Result<()> {
     let data = Arc::new(data::Data::new(
         db,
         config.discord.dev_guild_id,
+        config.discord.provision_guild_id,
         config.discord.token(),
     ));
 
@@ -113,6 +114,57 @@ async fn main() -> Result<()> {
                 }
 
                 autorole_sweeper::spawn(Arc::clone(&data));
+
+                // The ladder is part of the deployment, not a manual step: a fresh
+                // host running the leveling engine with no reward roles would
+                // compute level-ups and grant nothing. Provisioning here means
+                // deploying a commit produces the same guild state every time.
+                //
+                // Runs after the slash commands register so the run is announced
+                // before it starts doing work, and best-effort: a guild the bot has
+                // been removed from, or a missing `Manage Roles`, is reported and
+                // the bot keeps serving. A ladder that failed to build is a
+                // degraded feature, not a reason to refuse to start.
+                if let Some(guild_id) = data.provision_guild_id() {
+                    let guild_id = serenity::GuildId::new(guild_id);
+                    match ladder_setup::provision(&data, ctx, guild_id).await {
+                        Ok(report) => {
+                            tracing::info!(
+                                guild_id = guild_id.get(),
+                                summary = %report.summary(),
+                                fully_functional = report.is_fully_functional(),
+                                "level ladder provisioned"
+                            );
+
+                            if let Some(highest) = &report.highest_ungrantable {
+                                tracing::warn!(
+                                    guild_id = guild_id.get(),
+                                    rung = %highest,
+                                    "reward roles above the bot's own role cannot be assigned; \
+                                     raise the bot role above the ladder in Server Settings"
+                                );
+                            }
+
+                            // A rung added after members passed it is never granted by
+                            // the level-change path, so every deploy reconciles. Level
+                            // 0 depends on this: nobody levels up *into* level 0.
+                            match ladder_setup::sync_members(&data, guild_id, 5_000).await {
+                                Ok((examined, grants)) => tracing::info!(
+                                    guild_id = guild_id.get(),
+                                    examined,
+                                    grants,
+                                    "level reward roles reconciled"
+                                ),
+                                Err(error) => {
+                                    tracing::warn!(%error, "could not reconcile level reward roles")
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "could not provision the level ladder")
+                        }
+                    }
+                }
 
                 Ok((*data).clone())
             })

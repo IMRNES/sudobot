@@ -1,0 +1,36 @@
+[Unit]
+Description=sudobot Discord bot (gateway connection, XP and role engine)
+Documentation=https://github.com/IMRNES/sudobot
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sudobot
+Group=sudobot
+WorkingDirectory=/opt/sudobot
+
+# A separate unit from the API on purpose: the bot holds a long-lived gateway
+# connection and must survive an API redeploy, and a panic in a slash command
+# must not take the dashboard down with it. The two processes share one database
+# and that is the whole integration surface.
+ExecStart=/usr/local/bin/bws-exec sudobot /opt/sudobot/current/bin/bot
+
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+Environment=RUST_LOG=info
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sudobot-bot
+
+[Install]
+WantedBy=multi-user.target

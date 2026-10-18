@@ -1,0 +1,295 @@
+name: Build & Deploy
+
+# Build in CI, ship the artifacts. The host has no Rust toolchain and never gets
+# one: a release is four executables and a static dashboard, not 700 MB of
+# `target/` rebuilt on a box that is also running other people's services.
+#
+# CI is the gate — `cargo fmt`, `clippy -D warnings`, the unit suite, and the
+# migrations applied and rolled back against a real Postgres — and it runs on
+# every push and PR. The deploy job only runs for `main`.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A push that supersedes an in-flight run cancels it: the older commit's result
+# is no longer actionable. The deploy job overrides this with its own group so a
+# half-applied deploy is never cancelled mid-flight.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  VPS_HOST: ${{ secrets.VPS_HOST }}
+  VPS_USER: ${{ secrets.VPS_USER }}
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sudobot
+        ports:
+          - 5432:5432
+        # Without the health gate the migration step races the server's startup
+        # and fails with a connection refused that looks like a code problem.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/sudobot
+      JWT_SECRET: ci-secret-that-is-long-enough-for-the-minimum-of-32-bytes
+      DISCORD_BOT_TOKEN: ci-placeholder
+      DISCORD_CLIENT_ID: ci-placeholder
+      DISCORD_CLIENT_SECRET: ci-placeholder
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Keyed on the lockfile: a dependency change invalidates it, a source
+      # change does not.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --workspace
+
+      - name: Apply migrations
+        run: cargo run -p migration -- up
+
+      # The seeding is idempotent, so running it twice is itself a check: a second
+      # run that changes anything means bootstrap is not safe to redeploy.
+      - name: Seed
+        run: |
+          cargo run -p bootstrap
+          cargo run -p bootstrap
+
+      # The tests a fake repository cannot make: real SQL, real constraints, and
+      # the two writes the application treats as atomic.
+      - name: Integration tests
+        run: cargo test --workspace -- --include-ignored
+
+      - name: Roll back every migration
+        run: cargo run -p migration -- down 8
+
+      - name: Re-apply them
+        run: cargo run -p migration -- up
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Types
+        run: pnpm --filter web exec tsc --noEmit
+
+      - name: Lint and format
+        run: pnpm --filter web exec biome check .
+
+      # Also generates `routeTree.gen.ts`, so a route file the router plugin
+      # cannot parse fails here rather than at deploy time.
+      #
+      # `VITE_API_BASE_URL` is deliberately EMPTY for this build: the dashboard
+      # and the API are served from one origin, so relative requests are correct
+      # and CORS does not exist in production. Setting it to an absolute origin
+      # here would be the bug, not the fix.
+      - name: Build
+        run: pnpm --filter web build
+        env:
+          VITE_API_BASE_URL: ""
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # The release build. Runs only on main: a PR gets the CI gate, not binaries.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build release payload
+    needs: [rust, web]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          # A separate cache namespace from the CI job: the CI job builds test
+          # targets, this one builds release artifacts, and sharing a key makes
+          # each job evict the other's work.
+          key: release
+
+      - name: Build the binaries
+        run: |
+          cargo build --release --locked \
+            --bin gateway --bin bot --bin migrate --bin bootstrap
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: payload/web
+
+      # The payload is asserted before it is uploaded, so a build that silently
+      # produced fewer than four executables fails here rather than on the host
+      # with the old release already stopped.
+      - name: Assemble and audit the payload
+        run: |
+          set -euo pipefail
+          mkdir -p payload
+          for bin in gateway bot migrate bootstrap; do
+            test -x "target/release/$bin" || { echo "::error::$bin was not built"; exit 1; }
+            cp "target/release/$bin" "payload/$bin"
+          done
+
+          test -f payload/web/index.html || { echo "::error::the dashboard build is missing index.html"; exit 1; }
+
+          echo "--- payload ---"
+          ls -lh payload
+          du -sh payload
+
+          # Every shared library the runner has must exist on the target too. The
+          # runner's glibc is older than prod's, which is the safe direction, but
+          # this catches a crate that pulled in a library prod does not have.
+          echo "--- dynamic deps ---"
+          for bin in gateway bot migrate bootstrap; do
+            echo "$bin:"; ldd "payload/$bin" | sed 's/^/  /'
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sudobot-payload
+          path: payload
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to imrnes
+    needs: build
+    runs-on: ubuntu-latest
+
+    # Serialise deploys and never cancel one half-applied. This is the job-level
+    # group, distinct from the workflow-level one above.
+    concurrency:
+      group: sudobot-deploy
+      cancel-in-progress: false
+
+    # `github.ref`, NOT `event_name`: a manual `workflow_dispatch` runs this file
+    # from the dispatched ref and still receives the repository secrets, so an
+    # event-based gate would let a dispatch aimed at a branch deploy that branch
+    # over production.
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sudobot-payload
+          path: /tmp/sudobot-payload
+
+      - name: Show the payload
+        run: |
+          ls -lh /tmp/sudobot-payload
+          du -sh /tmp/sudobot-payload
+
+      - name: Setup SSH key
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          sed -i 's/\r$//' ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1 || { echo "::error::SSH key invalid"; exit 1; }
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Ship the payload
+        run: |
+          set -euo pipefail
+          ssh "$VPS_USER@$VPS_HOST" "rm -rf /tmp/sudobot-payload /tmp/sudobot-systemd && mkdir -p /tmp/sudobot-payload /tmp/sudobot-systemd"
+          scp -q /tmp/sudobot-payload/* "$VPS_USER@$VPS_HOST:/tmp/sudobot-payload/"
+          scp -qr /tmp/sudobot-payload/web "$VPS_USER@$VPS_HOST:/tmp/sudobot-payload/"
+          scp -q systemd/sudobot-gateway.service systemd/sudobot-bot.service systemd/sudobot.caddy \
+            "$VPS_USER@$VPS_HOST:/tmp/sudobot-systemd/"
+
+      - name: Deploy
+        # The script runs ON the host and is SCP'd from THIS checkout, never from
+        # the live release: running it from /opt/sudobot/current would be a
+        # chicken-and-egg trap where a fix to the deploy script can never take
+        # effect, because the copy that would apply it is itself the stale one.
+        run: |
+          scp -q scripts/deploy-direct.sh "$VPS_USER@$VPS_HOST:/tmp/deploy-sudobot.sh"
+          ssh "$VPS_USER@$VPS_HOST" \
+            "sed -i 's/\r$//' /tmp/deploy-sudobot.sh && \
+             sudo ARTIFACT_DIR=/tmp/sudobot-payload SYSTEMD_SRC=/tmp/sudobot-systemd \
+               bash /tmp/deploy-sudobot.sh '${{ github.sha }}'"
+
+      - name: Verify
+        run: |
+          ssh "$VPS_USER@$VPS_HOST" '\
+            echo "--- units ---"; \
+            for u in sudobot-gateway sudobot-bot; do \
+              printf "  %-18s %s\n" "$u" "$(systemctl is-active $u 2>/dev/null || echo inactive)"; \
+            done; \
+            echo "--- release ---"; \
+            readlink -f /opt/sudobot/current; \
+            du -sh /opt/sudobot/releases/* 2>/dev/null; \
+            echo "--- http ---"; \
+            for url in \
+              http://127.0.0.1:8080/api/v1/iam/health \
+              https://sudobot.imrnes.team/api/v1/iam/health \
+              https://sudobot.imrnes.team/ ; do \
+              code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url" || echo ERR); \
+              printf "  %-46s %s\n" "$url" "$code"; \
+            done; \
+            echo "--- bot ---"; \
+            journalctl -u sudobot-bot --since "5 min ago" --no-pager 2>/dev/null | grep -E "connected to discord|level ladder provisioned|reconciled" | tail -5'

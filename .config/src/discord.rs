@@ -12,6 +12,14 @@ pub struct DiscordConfig {
     /// Extra users allowed to run owner-only commands, beyond Discord's own
     /// application-owner list.
     pub owner_ids: Vec<u64>,
+    /// A guild whose level ladder is provisioned when the bot connects.
+    ///
+    /// The `/leveling ladder` command does the same thing on demand, but a ladder
+    /// built by hand in the Discord UI is not a deployable artifact: a fresh
+    /// environment would come up with the leveling engine running and no roles to
+    /// grant. This makes the ladder part of the deployment, so the same commit
+    /// produces the same roles on every host.
+    pub provision_guild_id: Option<u64>,
 }
 
 impl DiscordConfig {
@@ -31,6 +39,7 @@ impl DiscordConfig {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,
+            provision_guild_id: parse_optional_snowflake("DISCORD_PROVISION_GUILD_ID")?,
         })
     }
 

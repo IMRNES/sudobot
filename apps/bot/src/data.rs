@@ -15,6 +15,9 @@ pub struct Data {
     pub clock: iam::application::ports::SystemClock,
     /// Guild to register slash commands to during development, for instant updates.
     pub dev_guild_id: Option<u64>,
+    /// Guild whose level ladder is provisioned at startup, so the ladder ships with
+    /// the deploy rather than being built by hand in the Discord UI.
+    provision_guild_id: Option<u64>,
     /// The REST client the background sweeper uses.
     ///
     /// Held behind an `Arc` because `serenity::Http` is not `Clone`, while `Data`
@@ -31,7 +34,12 @@ pub struct Data {
 }
 
 impl Data {
-    pub fn new(db: sea_orm::DatabaseConnection, dev_guild_id: Option<u64>, token: &str) -> Self {
+    pub fn new(
+        db: sea_orm::DatabaseConnection,
+        dev_guild_id: Option<u64>,
+        provision_guild_id: Option<u64>,
+        token: &str,
+    ) -> Self {
         use iam::infrastructure::repository::{
             SeaOrmAutoRoleRepository, SeaOrmEconomyRepository, SeaOrmGuildRepository,
             SeaOrmGuildRoleRepository, SeaOrmLevelingRepository, SeaOrmWelcomeRepository,
@@ -46,9 +54,15 @@ impl Data {
             welcome: SeaOrmWelcomeRepository::new(db.clone()),
             clock: iam::application::ports::SystemClock,
             dev_guild_id,
+            provision_guild_id,
             http: std::sync::Arc::new(poise::serenity_prelude::Http::new(token)),
             voice: std::sync::Arc::new(crate::voice_tracker::VoiceTracker::new()),
         }
+    }
+
+    /// The guild whose level ladder this process provisions on connect, if any.
+    pub fn provision_guild_id(&self) -> Option<u64> {
+        self.provision_guild_id
     }
 
     /// The REST client, as the sweeper needs it.
@@ -90,6 +104,7 @@ mod tests {
         let data = Data::new(
             sea_orm::DatabaseConnection::default(),
             None,
+            None,
             "a-token-that-is-never-used-because-nothing-here-calls-discord",
         );
 
@@ -107,10 +122,26 @@ mod tests {
         let data = Data::new(
             sea_orm::DatabaseConnection::default(),
             None,
+            None,
             "a-token-that-is-never-used-because-nothing-here-calls-discord",
         );
 
         assert!(data.voice().is_empty());
+    }
+
+    /// The provisioning guild is what makes the ladder a deployable artifact: read
+    /// it back so a constructor that silently dropped it cannot ship, which would
+    /// leave the bot connecting fine and granting no roles forever.
+    #[test]
+    fn the_provisioning_guild_is_carried_through() {
+        let data = Data::new(
+            sea_orm::DatabaseConnection::default(),
+            None,
+            Some(1_450_861_658_061_803_624),
+            "a-token-that-is-never-used-because-nothing-here-calls-discord",
+        );
+
+        assert_eq!(data.provision_guild_id(), Some(1_450_861_658_061_803_624));
     }
 
     #[test]
@@ -118,9 +149,11 @@ mod tests {
         let data = Data::new(
             sea_orm::DatabaseConnection::default(),
             Some(42),
+            Some(99),
             "a-token-that-is-never-used-because-nothing-here-calls-discord",
         );
 
         assert_eq!(data.dev_guild_id, Some(42));
+        assert_eq!(data.provision_guild_id(), Some(99));
     }
 }

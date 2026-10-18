@@ -1,0 +1,38 @@
+# sudobot — dashboard + API behind Caddy.
+#
+# This block is inserted between markers in /etc/caddy/Caddyfile by the deploy
+# script, so it must be valid on its own with no surrounding context. There is no
+# `import conf.d/*` on this host: a file dropped into a directory would be
+# unreachable config that nonetheless looks installed.
+#
+# One origin for both halves on purpose. The dashboard reads
+# `VITE_API_BASE_URL`, and leaving it empty makes every request relative — so the
+# SPA calls `/api/v1/iam/...` on its own host, which this site block routes to the
+# API. That removes CORS from production entirely rather than configuring it.
+#
+# Order matters: the API prefix is matched before the SPA fallback, or the
+# fallback's `try_files` would answer an API path with index.html and a 200 —
+# which is exactly how a dead API reads as a healthy one.
+
+sudobot.imrnes.team {
+	encode gzip
+
+	# The API. `handle_path` would strip the prefix, which is wrong here: the
+	# router mounts the full `/api/v1/iam` path itself.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle /health {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	# The dashboard. `try_files` with `/index.html` is what makes client-side
+	# routing work: a deep link like /guilds/123/leveling is not a file on disk,
+	# so without the fallback it 404s on refresh.
+	handle {
+		root * /opt/sudobot/current/web
+		try_files {path} /index.html
+		file_server
+	}
+}
