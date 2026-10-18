@@ -57,7 +57,7 @@ function AuthCallbackPage() {
 			return
 		}
 
-		if (code === undefined || code === undefined || code.length === 0) {
+		if (code === undefined || code.length === 0) {
 			setFailure("This link is missing its authorization code. Start the sign-in again.")
 			return
 		}
@@ -106,9 +106,13 @@ function AuthCallbackPage() {
 				title="Sign-in failed"
 				description="Discord did not hand back a usable authorization, so no session was started."
 				message={failure}
-				retryLabel="Back to the dashboard"
+				retryLabel="Back to sign in"
 				onRetry={() => {
-					void navigate({ to: "/dashboard", replace: true })
+					// `/` and not `/dashboard`: on this path the exchange failed, so
+					// there is no session, and `/dashboard` is behind the
+					// `_authenticated` guard — sending the user there would bounce
+					// them through a redirect back to the page they just left.
+					void navigate({ to: "/", replace: true })
 				}}
 			/>
 		)
