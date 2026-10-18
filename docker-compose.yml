@@ -1,0 +1,97 @@
+# Production composition.
+#
+# Everything on one host behind nginx, which serves the SPA and proxies `/api` so
+# the browser sees a single origin and cookies are same-site. Migrations run as a
+# one-shot service that the two application services wait on, because applying a
+# schema change should be a deliberate step whose failure stops the deploy.
+#
+#   docker compose up -d
+#
+# One image backs all four services — it carries every binary — and `command`
+# selects which runs. Building them separately would compile the shared dependency
+# tree four times.
+#
+# Fill in `.env` first — see `.env.example`. Nothing here is safe by default.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-sudobot}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-sudobot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Not published: only the two services below need to reach it.
+
+  migrate:
+    image: sudobot
+    build:
+      context: .
+    command: ["migrate", "up"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  bootstrap:
+    image: sudobot
+    build:
+      context: .
+    command: ["bootstrap"]
+    env_file: .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  gateway:
+    image: sudobot
+    build:
+      context: .
+    command: ["gateway"]
+    env_file: .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  bot:
+    image: sudobot
+    build:
+      context: .
+    command: ["bot"]
+    env_file: .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    image: sudobot-web
+    build:
+      # Root context: pnpm needs the workspace manifests and lockfile that live
+      # at the repository root, not just `web/`.
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        # Left empty on purpose: nginx proxies `/api` on the same origin, which is
+        # the deployment this compose file describes. Set it only when the API
+        # lives somewhere else.
+        VITE_API_BASE_URL: ""
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

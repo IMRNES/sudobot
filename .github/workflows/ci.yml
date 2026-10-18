@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A push that supersedes an in-flight run cancels it: the older commit's result is
+# no longer actionable, and leaving it running wastes the runner.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # `cargo clippy -- -D warnings` and `cargo test` both read this; keeping it here
+  # means every Rust step fails on a warning without repeating the flag.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sudobot
+        ports:
+          - 5432:5432
+        # Without the health gate the migration step races the server's startup and
+        # fails with a connection refused that looks like a code problem.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/sudobot
+      JWT_SECRET: ci-secret-that-is-long-enough-for-the-minimum-of-32-bytes
+      DISCORD_BOT_TOKEN: ci-placeholder
+      DISCORD_CLIENT_ID: ci-placeholder
+      DISCORD_CLIENT_SECRET: ci-placeholder
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Keyed on the lockfile: a dependency change invalidates it, a source change
+      # does not.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --workspace
+
+      - name: Apply migrations
+        run: cargo run -p migration -- up
+
+      # The seeding is idempotent, so running it twice is itself a check: a second
+      # run that changes anything means bootstrap is not safe to redeploy.
+      - name: Seed
+        run: |
+          cargo run -p bootstrap
+          cargo run -p bootstrap
+
+      # The tests a fake repository cannot make: real SQL, real constraints, and the
+      # two writes the application treats as atomic.
+      - name: Integration tests
+        run: cargo test --workspace -- --include-ignored
+
+      - name: Roll back every migration
+        run: cargo run -p migration -- down 8
+
+      - name: Re-apply them
+        run: cargo run -p migration -- up
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Types
+        run: pnpm --filter web exec tsc --noEmit
+
+      - name: Lint and format
+        run: pnpm --filter web exec biome check .
+
+      # Also generates `routeTree.gen.ts`, so a route file the router plugin cannot
+      # parse fails here rather than at deploy time.
+      - name: Build
+        run: pnpm --filter web build

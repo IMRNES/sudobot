@@ -1,0 +1,13 @@
+# Pins the JavaScript toolchain for every moon task. proto installs (or reuses)
+# these exact versions, so `moon run web:build` behaves the same on every
+# machine. In moon v2 this file is `.moon/toolchains.yml` (plural) — the v1
+# `.moon/toolchain.yml` name is silently ignored.
+javascript:
+  packageManager: "pnpm"
+  inferTasksFromScripts: false
+
+node:
+  version: "24.21.0"
+
+pnpm:
+  version: "10.33.2"

@@ -1,0 +1,24 @@
+[package]
+name = "bot"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "bot"
+path = "src/main.rs"
+
+[dependencies]
+sudobot-config.workspace = true
+iam.workspace = true
+
+serenity.workspace = true
+poise.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+sea-orm.workspace = true
+
+[lints]
+workspace = true

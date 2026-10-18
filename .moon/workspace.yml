@@ -1,0 +1,6 @@
+$schema: "https://moonrepo.dev/schemas/workspace.json"
+
+# The Rust crates under `apps/*` are driven by Cargo; moon only orchestrates the
+# frontend workspace today.
+projects:
+  - "web"

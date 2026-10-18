@@ -1,0 +1,172 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Dark is the default surface; `light` is opt-in via the class toggled in main.tsx. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Palette — a neutral ramp with one accent (indigo/violet, matching Discord's
+ * blurple family) so the product reads as a single system rather than a set of
+ * unrelated screens. Every value below is a plain CSS custom property so
+ * shadcn primitives can reference them through `@theme inline`.
+ */
+:root {
+	--radius: 0.65rem;
+
+	--background: oklch(0.16 0.006 285.8);
+	--foreground: oklch(0.97 0.002 286);
+	--card: oklch(0.2 0.007 285.8);
+	--card-foreground: oklch(0.97 0.002 286);
+	--popover: oklch(0.2 0.007 285.8);
+	--popover-foreground: oklch(0.97 0.002 286);
+	--primary: oklch(0.62 0.19 285);
+	--primary-foreground: oklch(0.99 0.002 286);
+	--secondary: oklch(0.27 0.008 285.8);
+	--secondary-foreground: oklch(0.96 0.002 286);
+	--muted: oklch(0.26 0.007 285.8);
+	--muted-foreground: oklch(0.71 0.012 286);
+	--accent: oklch(0.3 0.02 285);
+	--accent-foreground: oklch(0.97 0.002 286);
+	--destructive: oklch(0.62 0.21 25.7);
+	--destructive-foreground: oklch(0.99 0.002 286);
+	--success: oklch(0.7 0.16 152);
+	--warning: oklch(0.79 0.15 78);
+	--border: oklch(0.31 0.008 285.8);
+	--input: oklch(0.29 0.008 285.8);
+	--ring: oklch(0.62 0.19 285 / 65%);
+	--sidebar: oklch(0.18 0.006 285.8);
+	--sidebar-foreground: oklch(0.95 0.002 286);
+	--sidebar-accent: oklch(0.27 0.01 285.8);
+	--sidebar-border: oklch(0.28 0.008 285.8);
+}
+
+.light {
+	--background: oklch(0.99 0.001 286);
+	--foreground: oklch(0.19 0.006 285.8);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.19 0.006 285.8);
+	--popover: oklch(1 0 0);
+	--popover-foreground: oklch(0.19 0.006 285.8);
+	--primary: oklch(0.55 0.2 285);
+	--primary-foreground: oklch(0.99 0.002 286);
+	--secondary: oklch(0.96 0.003 286);
+	--secondary-foreground: oklch(0.22 0.006 285.8);
+	--muted: oklch(0.96 0.003 286);
+	--muted-foreground: oklch(0.51 0.012 286);
+	--accent: oklch(0.95 0.01 285);
+	--accent-foreground: oklch(0.22 0.006 285.8);
+	--destructive: oklch(0.58 0.22 27.3);
+	--destructive-foreground: oklch(0.99 0.002 286);
+	--success: oklch(0.55 0.15 152);
+	--warning: oklch(0.66 0.15 70);
+	--border: oklch(0.91 0.004 286);
+	--input: oklch(0.91 0.004 286);
+	--ring: oklch(0.55 0.2 285 / 55%);
+	--sidebar: oklch(0.98 0.002 286);
+	--sidebar-foreground: oklch(0.22 0.006 285.8);
+	--sidebar-accent: oklch(0.94 0.006 286);
+	--sidebar-border: oklch(0.9 0.004 286);
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-success: var(--success);
+	--color-warning: var(--warning);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-border: var(--sidebar-border);
+
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+
+	--font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", monospace;
+}
+
+@layer base {
+	* {
+		border-color: var(--color-border);
+	}
+
+	html,
+	body,
+	#root {
+		height: 100%;
+	}
+
+	body {
+		background-color: var(--color-background);
+		color: var(--color-foreground);
+		font-family: var(--font-sans);
+		-webkit-font-smoothing: antialiased;
+		text-rendering: optimizeLegibility;
+	}
+
+	/*
+	 * Focus is never removed — only restyled. Every interactive element keeps a
+	 * visible ring so keyboard navigation stays usable on both palettes.
+	 */
+	:focus-visible {
+		outline: 2px solid var(--color-ring);
+		outline-offset: 2px;
+	}
+
+	::selection {
+		background-color: color-mix(in oklch, var(--color-primary) 40%, transparent);
+	}
+
+	/* Thin scrollbars that match the neutral ramp instead of the OS default. */
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: var(--color-border) transparent;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		*,
+		*::before,
+		*::after {
+			animation-duration: 0.01ms !important;
+			animation-iteration-count: 1 !important;
+			transition-duration: 0.01ms !important;
+		}
+	}
+}
+
+@layer utilities {
+	/* Skip link shown only on keyboard focus, used by the app shell. */
+	.skip-to-content {
+		position: absolute;
+		left: -9999px;
+		top: 0;
+		z-index: 100;
+	}
+	.skip-to-content:focus {
+		left: 1rem;
+		top: 1rem;
+		padding: 0.5rem 1rem;
+		border-radius: var(--radius-md);
+		background-color: var(--color-primary);
+		color: var(--color-primary-foreground);
+	}
+}

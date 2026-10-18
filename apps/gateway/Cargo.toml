@@ -1,0 +1,26 @@
+[package]
+name = "gateway"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "gateway"
+path = "src/main.rs"
+
+[dependencies]
+sudobot-config.workspace = true
+iam.workspace = true
+migration.workspace = true
+
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+sea-orm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "bootstrap"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "bootstrap"
+path = "src/main.rs"
+
+[dependencies]
+sudobot-config.workspace = true
+iam.workspace = true
+
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+sea-orm.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

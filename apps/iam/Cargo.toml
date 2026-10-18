@@ -1,0 +1,50 @@
+[package]
+name = "iam"
+version.workspace = true
+edition.workspace = true
+description = "Identity, guilds, economy, welcome and role automation for sudobot"
+
+[dependencies]
+sudobot-config.workspace = true
+
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+
+sea-orm.workspace = true
+
+argon2.workspace = true
+jsonwebtoken.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+zod-rs.workspace = true
+
+paginator-rs.workspace = true
+paginator-sea-orm.workspace = true
+paginator-axum.workspace = true
+
+tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+
+uuid.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# Integration tests are separate crates: they see `iam` plus these, not the
+# library's own dependencies. A test that opens a database connection needs
+# `sea-orm` in its own right, and one that builds a token needs `uuid`/`chrono`.
+sea-orm.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+sudobot-config.workspace = true
+serde_json.workspace = true
+# `ServiceExt::oneshot` drives the assembled router without a socket.
+tower = { workspace = true, features = ["util"] }
+
+[lints]
+workspace = true

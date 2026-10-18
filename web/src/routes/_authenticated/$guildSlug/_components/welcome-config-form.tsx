@@ -1,0 +1,419 @@
+import { useForm } from "@tanstack/react-form"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
+import { FormField, FormRow } from "#/components/features/form-field.tsx"
+import { PermissionButton } from "#/components/features/permission-button.tsx"
+import { QueryBoundary } from "#/components/features/query-boundary.tsx"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx"
+import { Input } from "#/components/ui/input.tsx"
+import { Label } from "#/components/ui/label.tsx"
+import { Switch } from "#/components/ui/switch.tsx"
+import { Textarea } from "#/components/ui/textarea.tsx"
+import { welcomeApi } from "#/libs/api/resources.ts"
+import { type IWelcomeConfigResponse, WELCOME_PLACEHOLDERS } from "#/libs/api/types.ts"
+import { normalizeApiError } from "#/libs/errors/index.ts"
+import { queryKeys } from "#/libs/query/keys.ts"
+import { hexColorToNumber, numberToHexColor } from "#/libs/utils.ts"
+import { guildQueries } from "#/routes/_authenticated/$guildSlug/_data/queries.ts"
+
+/**
+ * Welcome and goodbye message configuration.
+ *
+ * Message templates are validated against the API's own allow-list
+ * (`{user}`, `{mention}`, `{guild}`, `{memberCount}`) before the request goes
+ * out — API.md states anything else is a `400`, and catching it here means the
+ * admin sees which placeholder is wrong instead of one opaque rejection.
+ */
+export function WelcomeConfigForm({
+	guildId,
+	canWrite,
+	deniedReason,
+}: {
+	guildId: string
+	canWrite: boolean
+	deniedReason: string
+}) {
+	const query = useQuery(guildQueries.welcome(guildId))
+
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle className="text-base">Messages</CardTitle>
+				<CardDescription>
+					Sent when somebody joins or leaves. Placeholders are replaced per member.
+				</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<QueryBoundary isLoading={query.isLoading} isError={query.isError} error={query.error}>
+					{query.data ? (
+						<WelcomeForm
+							key={JSON.stringify(query.data)}
+							guildId={guildId}
+							config={query.data}
+							canWrite={canWrite}
+							deniedReason={deniedReason}
+						/>
+					) : null}
+				</QueryBoundary>
+			</CardContent>
+		</Card>
+	)
+}
+
+/** Reject any `{...}` token the API would reject, before sending. */
+export function findUnknownPlaceholder(message: string): string | null {
+	const matches = message.matchAll(/\{([^}]*)\}/g)
+	const allowed = new Set<string>(WELCOME_PLACEHOLDERS)
+	for (const match of matches) {
+		const token = `{${match[1]}}`
+		if (!allowed.has(token)) return token
+	}
+	return null
+}
+
+function WelcomeForm({
+	guildId,
+	config,
+	canWrite,
+	deniedReason,
+}: {
+	guildId: string
+	config: IWelcomeConfigResponse
+	canWrite: boolean
+	deniedReason: string
+}) {
+	const queryClient = useQueryClient()
+
+	const save = useMutation({
+		mutationFn: welcomeApi.update.bind(null, guildId),
+		onSuccess: (updated) => {
+			queryClient.setQueryData(queryKeys.welcome.config(guildId), updated)
+			toast.success("Welcome settings saved")
+		},
+		onError: (error) => {
+			const normalised = normalizeApiError(error)
+			toast.error("Could not save welcome settings", { description: normalised.message })
+		},
+	})
+
+	const form = useForm({
+		defaultValues: {
+			welcome_enabled: config.welcome_enabled,
+			welcome_channel_id: config.welcome_channel_id ?? "",
+			welcome_message: config.welcome_message ?? "",
+			welcome_embed_color: numberToHexColor(config.welcome_embed_color) ?? "#5865f2",
+			welcome_dm_enabled: config.welcome_dm_enabled,
+			goodbye_enabled: config.goodbye_enabled,
+			goodbye_channel_id: config.goodbye_channel_id ?? "",
+			goodbye_message: config.goodbye_message ?? "",
+			goodbye_embed_color: numberToHexColor(config.goodbye_embed_color) ?? "#ed4245",
+		},
+		onSubmit: ({ value }) => {
+			save.mutate({
+				welcome_enabled: value.welcome_enabled,
+				welcome_channel_id: value.welcome_channel_id.trim() || null,
+				welcome_message: value.welcome_message.trim() || null,
+				welcome_embed_color: hexColorToNumber(value.welcome_embed_color),
+				welcome_dm_enabled: value.welcome_dm_enabled,
+				goodbye_enabled: value.goodbye_enabled,
+				goodbye_channel_id: value.goodbye_channel_id.trim() || null,
+				goodbye_message: value.goodbye_message.trim() || null,
+				goodbye_embed_color: hexColorToNumber(value.goodbye_embed_color),
+			})
+		},
+	})
+
+	return (
+		<form
+			className="flex flex-col gap-6"
+			onSubmit={(event) => {
+				event.preventDefault()
+				event.stopPropagation()
+				if (!canWrite) return
+				void form.handleSubmit()
+			}}
+		>
+			{/* ------------------------------------------------ welcome message */}
+
+			<form.Field name="welcome_enabled">
+				{(field) => (
+					<ToggleRow
+						id="welcome-enabled"
+						label="Welcome messages"
+						description="Post a message when somebody joins the server."
+						checked={field.state.value}
+						disabled={!canWrite}
+						reason={deniedReason}
+						onChange={(checked) => field.handleChange(checked)}
+					/>
+				)}
+			</form.Field>
+
+			<form.Subscribe selector={(state) => state.values.welcome_enabled}>
+				{(enabled) =>
+					!enabled ? null : (
+						<div className="flex flex-col gap-4 border-l-2 border-border pl-4">
+							<FormRow>
+								<form.Field name="welcome_channel_id">
+									{(field) => (
+										<FormField
+											label="Channel id"
+											htmlFor={field.name}
+											description="Where the message is posted."
+										>
+											<Input
+												id={field.name}
+												value={field.state.value}
+												disabled={!canWrite}
+												onBlur={field.handleBlur}
+												onChange={(event) => field.handleChange(event.target.value)}
+												placeholder="123456789012345678"
+												inputMode="numeric"
+												className="font-mono"
+											/>
+										</FormField>
+									)}
+								</form.Field>
+
+								<form.Field name="welcome_embed_color">
+									{(field) => (
+										<FormField label="Embed colour" htmlFor={field.name}>
+											<div className="flex items-center gap-2">
+												<input
+													id={field.name}
+													type="color"
+													value={field.state.value}
+													disabled={!canWrite}
+													onChange={(event) => field.handleChange(event.target.value)}
+													className="h-9 w-12 shrink-0 cursor-pointer rounded-md border border-input bg-transparent disabled:cursor-not-allowed"
+													aria-label="Embed colour"
+												/>
+												<Input
+													value={field.state.value}
+													disabled={!canWrite}
+													onChange={(event) => field.handleChange(event.target.value)}
+													className="font-mono"
+												/>
+											</div>
+										</FormField>
+									)}
+								</form.Field>
+							</FormRow>
+
+							<form.Field
+								name="welcome_message"
+								validators={{
+									onChange: ({ value }) => {
+										const unknown = findUnknownPlaceholder(value)
+										return unknown === null
+											? undefined
+											: `Unknown placeholder ${unknown}. Allowed: ${WELCOME_PLACEHOLDERS.join(", ")}.`
+									},
+								}}
+							>
+								{(field) => (
+									<FormField
+										label="Message"
+										htmlFor={field.name}
+										error={field.state.meta.errors[0]?.toString()}
+									>
+										<Textarea
+											id={field.name}
+											value={field.state.value}
+											disabled={!canWrite}
+											onBlur={field.handleBlur}
+											onChange={(event) => field.handleChange(event.target.value)}
+											placeholder="Welcome {mention} to {guild}! You are member #{memberCount}."
+											rows={3}
+										/>
+										<PlaceholderHints />
+									</FormField>
+								)}
+							</form.Field>
+
+							<form.Field name="welcome_dm_enabled">
+								{(field) => (
+									<ToggleRow
+										id="welcome-dm"
+										label="Also send a direct message"
+										description="Sends the same text to the member privately."
+										checked={field.state.value}
+										disabled={!canWrite}
+										reason={deniedReason}
+										onChange={(checked) => field.handleChange(checked)}
+									/>
+								)}
+							</form.Field>
+						</div>
+					)
+				}
+			</form.Subscribe>
+
+			{/* ------------------------------------------------ goodbye message */}
+
+			<form.Field name="goodbye_enabled">
+				{(field) => (
+					<ToggleRow
+						id="goodbye-enabled"
+						label="Goodbye messages"
+						description="Post a message when somebody leaves."
+						checked={field.state.value}
+						disabled={!canWrite}
+						reason={deniedReason}
+						onChange={(checked) => field.handleChange(checked)}
+					/>
+				)}
+			</form.Field>
+
+			<form.Subscribe selector={(state) => state.values.goodbye_enabled}>
+				{(enabled) =>
+					!enabled ? null : (
+						<div className="flex flex-col gap-4 border-l-2 border-border pl-4">
+							<FormRow>
+								<form.Field name="goodbye_channel_id">
+									{(field) => (
+										<FormField label="Channel id" htmlFor={field.name}>
+											<Input
+												id={field.name}
+												value={field.state.value}
+												disabled={!canWrite}
+												onBlur={field.handleBlur}
+												onChange={(event) => field.handleChange(event.target.value)}
+												placeholder="123456789012345678"
+												inputMode="numeric"
+												className="font-mono"
+											/>
+										</FormField>
+									)}
+								</form.Field>
+
+								<form.Field name="goodbye_embed_color">
+									{(field) => (
+										<FormField label="Embed colour" htmlFor={field.name}>
+											<div className="flex items-center gap-2">
+												<input
+													id={field.name}
+													type="color"
+													value={field.state.value}
+													disabled={!canWrite}
+													onChange={(event) => field.handleChange(event.target.value)}
+													className="h-9 w-12 shrink-0 cursor-pointer rounded-md border border-input bg-transparent disabled:cursor-not-allowed"
+													aria-label="Embed colour"
+												/>
+												<Input
+													value={field.state.value}
+													disabled={!canWrite}
+													onChange={(event) => field.handleChange(event.target.value)}
+													className="font-mono"
+												/>
+											</div>
+										</FormField>
+									)}
+								</form.Field>
+							</FormRow>
+
+							<form.Field
+								name="goodbye_message"
+								validators={{
+									onChange: ({ value }) => {
+										if (value.trim().length === 0) return undefined
+										const unknown = findUnknownPlaceholder(value)
+										return unknown === null
+											? undefined
+											: `Unknown placeholder ${unknown}. Allowed: ${WELCOME_PLACEHOLDERS.join(", ")}.`
+									},
+								}}
+							>
+								{(field) => (
+									<FormField
+										label="Message"
+										htmlFor={field.name}
+										error={field.state.meta.errors[0]?.toString()}
+									>
+										<Textarea
+											id={field.name}
+											value={field.state.value}
+											disabled={!canWrite}
+											onBlur={field.handleBlur}
+											onChange={(event) => field.handleChange(event.target.value)}
+											placeholder="{user} left {guild}."
+											rows={3}
+										/>
+										<PlaceholderHints />
+									</FormField>
+								)}
+							</form.Field>
+						</div>
+					)
+				}
+			</form.Subscribe>
+
+			<div className="flex justify-end">
+				<PermissionButton
+					type="submit"
+					allowed={canWrite}
+					reason={deniedReason}
+					disabled={save.isPending}
+				>
+					{save.isPending ? "Saving…" : "Save messages"}
+				</PermissionButton>
+			</div>
+		</form>
+	)
+}
+
+/** The allow-list, rendered as copy-pasteable chips. */
+function PlaceholderHints() {
+	return (
+		<div className="flex flex-wrap items-center gap-1.5 pt-1">
+			<span className="text-xs text-muted-foreground">Available:</span>
+			{WELCOME_PLACEHOLDERS.map((placeholder) => (
+				<code
+					key={placeholder}
+					className="rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[11px]"
+				>
+					{placeholder}
+				</code>
+			))}
+		</div>
+	)
+}
+
+function ToggleRow({
+	id,
+	label,
+	description,
+	checked,
+	disabled,
+	reason,
+	onChange,
+}: {
+	id: string
+	label: string
+	description: string
+	checked: boolean
+	disabled: boolean
+	reason: string
+	onChange: (checked: boolean) => void
+}) {
+	return (
+		<div
+			className="flex items-start justify-between gap-4 rounded-lg border border-border px-4 py-3"
+			title={disabled ? reason : undefined}
+		>
+			<div className="flex flex-col gap-0.5">
+				<Label htmlFor={id} className={disabled ? "" : "cursor-pointer"}>
+					{label}
+				</Label>
+				<p className="text-xs text-muted-foreground">{description}</p>
+			</div>
+			<Switch
+				id={id}
+				checked={checked}
+				disabled={disabled}
+				onCheckedChange={onChange}
+				className="mt-0.5"
+			/>
+		</div>
+	)
+}

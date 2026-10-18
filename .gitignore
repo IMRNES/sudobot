@@ -1,0 +1,31 @@
+# rust
+/target
+**/target
+
+# env
+.env
+.env.local
+.env.*.local
+# The examples are meant to be committed; every other .env is not.
+!.env.example
+!**/.env.example
+
+# node
+node_modules
+dist
+.tanstack
+*.tsbuildinfo
+
+# moon
+.moon/cache
+.moon/docker
+
+# logs and local scratch
+*.log
+/tmp
+
+# editors / os
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json

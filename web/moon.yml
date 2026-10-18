@@ -1,0 +1,59 @@
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+language: "typescript"
+layer: "application"
+tags:
+  - "frontend"
+  - "react"
+
+fileGroups:
+  sources:
+    - "src/**/*"
+    - "index.html"
+  configs:
+    - "vite.config.ts"
+    - "tsconfig.json"
+    - "components.json"
+    - "package.json"
+    # Root-level files this project depends on. A leading `/` means
+    # "relative to the workspace root" — moon rejects `..` traversal.
+    - "/tsconfig.base.json"
+    - "/biome.json"
+    - "/pnpm-workspace.yaml"
+
+tasks:
+  # Long-running dev server. `preset: "server"` tells moon not to cache it and to
+  # keep it attached to the terminal.
+  dev:
+    command: "vite"
+    preset: "server"
+
+  build:
+    command: "vite build"
+    inputs:
+      - "@group(sources)"
+      - "@group(configs)"
+    outputs:
+      - "dist"
+
+  check:
+    command: "biome check ."
+    inputs:
+      - "@group(sources)"
+      - "@group(configs)"
+
+  lint:
+    command: "biome lint ."
+    inputs:
+      - "@group(sources)"
+      - "@group(configs)"
+
+  format:
+    command: "biome format --write ."
+    preset: "server"
+
+  typecheck:
+    command: "tsc --noEmit"
+    inputs:
+      - "@group(sources)"
+      - "@group(configs)"

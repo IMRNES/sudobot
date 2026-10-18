@@ -1,0 +1,26 @@
+[package]
+name = "migration"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+name = "migration"
+path = "src/lib.rs"
+
+[dependencies]
+sudobot-config.workspace = true
+
+sea-orm-migration.workspace = true
+sea-orm.workspace = true
+async-trait = "0.1"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+anyhow.workspace = true
+tracing.workspace = true
+
+[[bin]]
+name = "migrate"
+path = "src/bin/migrate.rs"
+
+[lints]
+workspace = true

@@ -1,0 +1,109 @@
+[workspace]
+resolver = "3"
+members = [
+    ".config",
+    ".migrations",
+    "apps/iam",
+    "apps/gateway",
+    "apps/bot",
+    "apps/bootstrap",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.94"
+
+[workspace.dependencies]
+# --- local crates -----------------------------------------------------------
+sudobot-config = { path = ".config" }
+migration = { path = ".migrations" }
+iam = { path = "apps/iam" }
+
+# --- runtime / async --------------------------------------------------------
+tokio = { version = "1.53", features = ["full"] }
+
+# --- web --------------------------------------------------------------------
+axum = { version = "0.8.9", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.7.1", features = ["cors", "trace", "limit"] }
+
+# --- persistence ------------------------------------------------------------
+sea-orm = { version = "2.0.4", default-features = false, features = [
+    "sqlx-postgres",
+    "runtime-tokio-rustls",
+    "with-chrono",
+    "with-uuid",
+    "macros",
+] }
+sea-orm-migration = { version = "2.0.4", default-features = false, features = [
+    "sqlx-postgres",
+    "runtime-tokio-rustls",
+] }
+
+# --- auth -------------------------------------------------------------------
+# argon2's default features already cover salt generation, so nothing extra is
+# requested here; `rand_core` would only be needed to inject a custom RNG.
+argon2 = "0.6"
+# jsonwebtoken 11 ships no default crypto backend: without one of `rust_crypto`
+# or `aws_lc_rs` it compiles fine and then panics on the first encode/decode.
+# `rust_crypto` is pure Rust, so no C toolchain is needed.
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
+
+# --- validation / serialization --------------------------------------------
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zod-rs = { version = "1.1", features = ["axum"] }
+
+# --- pagination -------------------------------------------------------------
+paginator-rs = "0.4"
+paginator-sea-orm = "0.4"
+paginator-axum = "0.4"
+
+# --- observability ----------------------------------------------------------
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# --- errors -----------------------------------------------------------------
+anyhow = "1"
+thiserror = "2"
+
+# --- misc -------------------------------------------------------------------
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+
+# --- discord ----------------------------------------------------------------
+serenity = { version = "0.12.5", default-features = false, features = [
+    "client",
+    "gateway",
+    "model",
+    "cache",
+    "utils",
+    "rustls_backend",
+    "chrono",
+] }
+poise = "0.7.1"
+
+# --- lint policy ------------------------------------------------------------
+# Applied to every crate through `[lints] workspace = true`. Kept as warnings
+# that fail CI rather than as allows: a lint that is silenced at the crate root
+# is a lint that never gets fixed.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+large_enum_variant = "warn"
+# `unwrap`/`expect` in production code are a panic waiting for input that is not
+# what the author assumed, so they stay visible as warnings. In tests they are the
+# idiomatic assertion, and a test that cannot fail loudly is not testing anything —
+# so each `#[cfg(test)]` module and each `tests/` file carries a file-level allow,
+# which keeps the ban meaningful where it matters.

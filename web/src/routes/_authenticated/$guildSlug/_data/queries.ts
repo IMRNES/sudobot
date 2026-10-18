@@ -1,0 +1,160 @@
+import { queryOptions } from "@tanstack/react-query"
+import {
+	autorolesApi,
+	economyApi,
+	guildsApi,
+	levelingApi,
+	membersApi,
+	panelsApi,
+	rolesApi,
+	welcomeApi,
+} from "#/libs/api/resources.ts"
+import type { IListParams } from "#/libs/api/types.ts"
+import { queryKeys } from "#/libs/query/keys.ts"
+
+/**
+ * Query option factories for every guild-scoped resource.
+ *
+ * Centralised for three reasons:
+ *  - the key and the fetcher can never drift apart, which is the usual cause of
+ *    a mutation that invalidates nothing;
+ *  - `useQuery(guildQueries.members(id, params))` in a component and
+ *    `queryClient.ensureQueryData(guildQueries.members(id, params))` in a loader
+ *    are provably the same cache entry;
+ *  - the default `staleTime` per resource is declared once, so a config object
+ *    that other people edit is re-read promptly while a leaderboard is not.
+ */
+
+/** Configuration that admins edit: refetch eagerly after invalidation. */
+const CONFIG_STALE_TIME = 30_000
+/** Derived rankings: short-lived, cheap to recompute. */
+const LEADERBOARD_STALE_TIME = 15_000
+/** Paginated tables: the user is driving, so trust the cache. */
+const TABLE_STALE_TIME = 30_000
+
+export const guildQueries = {
+	detail: (guildId: string) =>
+		queryOptions({
+			queryKey: queryKeys.guilds.detail(guildId),
+			queryFn: ({ signal }) => guildsApi.get(guildId, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+		}),
+
+	/* ---------------------------------------------------------------- members */
+
+	members: (guildId: string, params: IListParams) =>
+		queryOptions({
+			queryKey: queryKeys.members.list(guildId, params),
+			queryFn: ({ signal }) => membersApi.list(guildId, params, { signal }),
+			staleTime: TABLE_STALE_TIME,
+			placeholderData: (previous) => previous,
+		}),
+
+	/* ------------------------------------------------------------------ roles */
+
+	roles: (guildId: string, params: IListParams = { per_page: 100 }) =>
+		queryOptions({
+			queryKey: queryKeys.roles.list(guildId, params),
+			queryFn: ({ signal }) => rolesApi.list(guildId, params, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+		}),
+
+	permissions: (guildId: string) =>
+		queryOptions({
+			queryKey: queryKeys.roles.permissions(guildId),
+			queryFn: ({ signal }) => rolesApi.permissions(guildId, { signal }),
+			// The permission catalogue is compiled into the server, so it never
+			// changes while the tab is open.
+			staleTime: Number.POSITIVE_INFINITY,
+		}),
+
+	/* ---------------------------------------------------------------- economy */
+
+	economyLeaderboard: (guildId: string, limit = 10) =>
+		queryOptions({
+			queryKey: queryKeys.economy.leaderboard(guildId, limit),
+			queryFn: ({ signal }) => economyApi.leaderboard(guildId, limit, { signal }),
+			staleTime: LEADERBOARD_STALE_TIME,
+		}),
+
+	economyAccount: (guildId: string, discordId: string, enabled = true) =>
+		queryOptions({
+			queryKey: queryKeys.economy.account(guildId, discordId),
+			queryFn: ({ signal }) => economyApi.account(guildId, discordId, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+			enabled: enabled && discordId.length > 0,
+			// A missing account is a normal answer (nobody has earned yet), not a
+			// fault worth retrying or exploding over.
+			retry: false,
+		}),
+
+	transactions: (guildId: string, discordId: string, params: IListParams, enabled = true) =>
+		queryOptions({
+			queryKey: queryKeys.economy.transactions(guildId, discordId, params),
+			queryFn: ({ signal }) => economyApi.transactions(guildId, discordId, params, { signal }),
+			staleTime: TABLE_STALE_TIME,
+			enabled: enabled && discordId.length > 0,
+			placeholderData: (previous) => previous,
+		}),
+
+	items: (guildId: string, params: IListParams) =>
+		queryOptions({
+			queryKey: queryKeys.economy.items(guildId, params),
+			queryFn: ({ signal }) => economyApi.items(guildId, params, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+			placeholderData: (previous) => previous,
+		}),
+
+	/* --------------------------------------------------------------- leveling */
+
+	levelingConfig: (guildId: string) =>
+		queryOptions({
+			queryKey: queryKeys.leveling.config(guildId),
+			queryFn: ({ signal }) => levelingApi.config(guildId, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+		}),
+
+	levelingLeaderboard: (guildId: string, limit = 25) =>
+		queryOptions({
+			queryKey: queryKeys.leveling.leaderboard(guildId, limit),
+			queryFn: ({ signal }) => levelingApi.leaderboard(guildId, limit, { signal }),
+			staleTime: LEADERBOARD_STALE_TIME,
+		}),
+
+	rewards: (guildId: string, params: IListParams) =>
+		queryOptions({
+			queryKey: queryKeys.leveling.rewards(guildId, params),
+			queryFn: ({ signal }) => levelingApi.rewards(guildId, params, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+			placeholderData: (previous) => previous,
+		}),
+
+	/* ---------------------------------------------------------------- welcome */
+
+	welcome: (guildId: string) =>
+		queryOptions({
+			queryKey: queryKeys.welcome.config(guildId),
+			queryFn: ({ signal }) => welcomeApi.get(guildId, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+		}),
+
+	/* ----------------------------------------------------------------- panels */
+
+	panels: (guildId: string, params: IListParams) =>
+		queryOptions({
+			queryKey: queryKeys.panels.list(guildId, params),
+			queryFn: ({ signal }) => panelsApi.list(guildId, params, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+			placeholderData: (previous) => previous,
+		}),
+
+	/* -------------------------------------------------------------- autoroles */
+
+	autoroles: (guildId: string, params: IListParams) =>
+		queryOptions({
+			queryKey: queryKeys.autoroles.list(guildId, params),
+			queryFn: ({ signal }) => autorolesApi.list(guildId, params, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+			placeholderData: (previous) => previous,
+		}),
+}

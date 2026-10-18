@@ -1,0 +1,8 @@
+packages:
+  - "web"
+
+# pnpm 10 refuses to run lifecycle scripts of dependencies unless they are
+# explicitly trusted. Vite/esbuild/oxc ship prebuilt binaries through optional
+# dependencies, so they do not need to run scripts here.
+onlyBuiltDependencies:
+  - "@biomejs/biome"
