@@ -46,6 +46,15 @@ impl ReqwestDiscordOAuthClient {
         self.config.authorize_url(state)
     }
 
+    /// Whether this installation can complete a consent-code exchange.
+    ///
+    /// The consent screen needs only the client id, so a half-configured
+    /// installation can build a URL that is guaranteed to fail. Callers check this
+    /// first so the browser is refused here instead of by Discord.
+    pub fn is_configured(&self) -> bool {
+        self.config.is_configured()
+    }
+
     /// The token endpoint, exposed for diagnostics and tests.
     pub fn token_endpoint(&self) -> &'static str {
         self.config.token_endpoint()
@@ -121,9 +130,16 @@ impl ReqwestDiscordOAuthClient {
 
 impl DiscordOAuthClient for ReqwestDiscordOAuthClient {
     async fn exchange_code(&self, code: &str) -> Result<String, DiscordOAuthError> {
+        // Refused here rather than posted with an empty secret: Discord would
+        // answer `invalid_client`, which reads as "your credentials are wrong"
+        // when the real answer is "this installation has none configured".
+        let Some(client_secret) = self.config.client_secret() else {
+            return Err(DiscordOAuthError::NotConfigured);
+        };
+
         let request = self.http.post(TOKEN_URL).form(&[
             ("client_id", self.config.client_id.as_str()),
-            ("client_secret", self.config.client_secret()),
+            ("client_secret", client_secret),
             ("grant_type", "authorization_code"),
             ("code", code),
             // Must match the value the consent screen was opened with, byte for
@@ -163,9 +179,16 @@ impl DiscordOAuthClient for ReqwestDiscordOAuthClient {
     }
 
     async fn revoke(&self, access_token: &str) -> Result<(), DiscordOAuthError> {
+        // Best-effort by contract, and revocation cannot run without the secret.
+        // A token that stays valid until it expires is the caller's accepted
+        // outcome here, so this is not an error worth surfacing.
+        let Some(client_secret) = self.config.client_secret() else {
+            return Ok(());
+        };
+
         let request = self.http.post(REVOKE_URL).form(&[
             ("client_id", self.config.client_id.as_str()),
-            ("client_secret", self.config.client_secret()),
+            ("client_secret", client_secret),
             ("token", access_token),
         ]);
 

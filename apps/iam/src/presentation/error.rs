@@ -32,6 +32,12 @@ pub enum AppError {
     /// The caller is out of attempts. Kept distinct from `Forbidden` so clients
     /// can back off rather than re-authenticate.
     TooManyRequests,
+    /// The feature is not available on this installation — a configuration gap on
+    /// the server, not a fault in the request. Distinct from `Internal` because the
+    /// message is actionable ("login is not configured") and safe to show, and
+    /// distinct from `Forbidden` because retrying or re-authenticating will not
+    /// help.
+    Unavailable(String),
     Internal(String),
 }
 
@@ -52,6 +58,7 @@ impl AppError {
         match self {
             Self::Unauthorized(reason) if reason == TOKEN_EXPIRED => Some(TOKEN_EXPIRED),
             Self::Conflict(_) => Some("conflict"),
+            Self::Unavailable(_) => Some(NOT_CONFIGURED),
             Self::TooManyRequests => Some("rate_limited"),
             Self::Forbidden(reason) if reason == PERMISSION_DENIED => Some(PERMISSION_DENIED),
             _ => None,
@@ -66,6 +73,7 @@ impl AppError {
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
+            Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -80,7 +88,8 @@ impl AppError {
             | Self::Unauthorized(message)
             | Self::Forbidden(message)
             | Self::NotFound(message)
-            | Self::Conflict(message) => message.clone(),
+            | Self::Conflict(message)
+            | Self::Unavailable(message) => message.clone(),
             Self::TooManyRequests => "too many requests; try again shortly".to_string(),
             Self::Internal(_) => "an internal error occurred".to_string(),
         }
@@ -91,6 +100,8 @@ impl AppError {
 pub const TOKEN_EXPIRED: &str = "token_expired";
 /// Marks a 403 the client should render as "you lack permission X".
 pub const PERMISSION_DENIED: &str = "permission_denied";
+/// Marks a 503 the client should render as "this installation cannot do that yet".
+pub const NOT_CONFIGURED: &str = "not_configured";
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
@@ -140,6 +151,12 @@ impl From<AuthError> for AppError {
             AuthError::InvalidRefreshToken
             | AuthError::RefreshTokenExpired
             | AuthError::RefreshTokenReused => Self::Unauthorized(error.to_string()),
+
+            // A server-side configuration gap, not a bad request: the caller did
+            // nothing wrong and cannot fix it by retrying. 503 is the honest
+            // status — the feature is unavailable, and it is not this request's
+            // fault.
+            AuthError::LoginNotConfigured => Self::Unavailable(error.to_string()),
 
             AuthError::UserNotFound => Self::NotFound(error.to_string()),
             AuthError::NotAGuildMember(_) => Self::Forbidden(error.to_string()),

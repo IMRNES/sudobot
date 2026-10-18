@@ -206,29 +206,42 @@ fi
 # the wait — blocking on a real process rather than polling on a timer.
 # ---------------------------------------------------------------------------
 log "waiting for the API to answer"
-healthy=0
+api_healthy=0
 if curl -fsS --max-time 3 \
   --retry 20 --retry-delay 1 --retry-connrefused --retry-all-errors \
   http://127.0.0.1:8080/api/v1/iam/health >/dev/null 2>&1; then
-  healthy=1
+  api_healthy=1
 fi
 
-if [[ "$healthy" != "1" ]]; then
-  log "the API did not become healthy; rolling back"
-  systemctl --no-pager --lines=40 status sudobot-gateway sudobot-bot || true
+bot_state=$(systemctl is-active sudobot-bot 2>/dev/null || echo inactive)
+api_state=$(systemctl is-active sudobot-gateway 2>/dev/null || echo inactive)
+log "  sudobot-gateway -> $api_state (http healthy: $api_healthy)"
+log "  sudobot-bot     -> $bot_state"
+
+if [[ "$api_state" != "active" || "$api_healthy" != "1" || "$bot_state" != "active" ]]; then
+  log "a unit is not healthy; recent logs follow"
   journalctl -u sudobot-gateway -u sudobot-bot --no-pager --lines=40 || true
-  if [[ -n "$PREVIOUS" ]]; then
-    ln -sfn "$PREVIOUS" "$CURRENT"
-    systemctl restart sudobot-gateway sudobot-bot || true
-    log "rolled back to $PREVIOUS"
+
+  # Roll back only when there is something to roll back TO. On a first deploy
+  # there is no previous release, and the two units fail for different reasons —
+  # rolling the bot back because the API lacks an OAuth secret would take down a
+  # working service to fix an unrelated one.
+  if [[ -z "$PREVIOUS" ]]; then
+    cat >&2 <<EOF
+
+first deploy finished with a unit down and no previous release to restore.
+The release is installed at $RELEASE and stays in place so the logs and the
+binaries can be inspected. Fix the cause, then re-run the deploy; nothing is
+half-applied, because the failing unit never served traffic.
+EOF
+    exit 1
   fi
+
+  log "rolling back to $PREVIOUS"
+  ln -sfn "$PREVIOUS" "$CURRENT"
+  systemctl restart sudobot-gateway sudobot-bot || true
   die "deploy failed its health check"
 fi
-
-for unit in sudobot-gateway sudobot-bot; do
-  state=$(systemctl is-active "$unit" 2>/dev/null || echo inactive)
-  log "  $unit -> $state"
-done
 
 # A restart is not proof the gateway connected: a revoked token or a refused
 # privileged intent leaves the unit `active` while the bot does nothing. The log

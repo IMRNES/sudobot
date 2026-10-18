@@ -37,6 +37,11 @@ pub enum AuthError {
     #[error("failed to reach discord: {0}")]
     DiscordUnavailable(String),
 
+    /// Dashboard login is disabled because this installation has no Discord OAuth
+    /// client secret. Not a Discord failure: nothing was attempted.
+    #[error("dashboard login is not configured on this installation")]
+    LoginNotConfigured,
+
     #[error("you are not a member of guild {0}")]
     NotAGuildMember(u64),
 

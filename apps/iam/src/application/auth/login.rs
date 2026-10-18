@@ -206,6 +206,7 @@ where
 /// differently from "Discord is down": one restarts the flow, the other retries.
 fn map_oauth_error(error: DiscordOAuthError) -> AuthError {
     match error {
+        DiscordOAuthError::NotConfigured => AuthError::LoginNotConfigured,
         DiscordOAuthError::InvalidCode => AuthError::InvalidOAuthCode,
         DiscordOAuthError::Api(message) => AuthError::DiscordUnavailable(message),
         DiscordOAuthError::Transport(message) => AuthError::DiscordUnavailable(message),

@@ -51,16 +51,23 @@ impl AuthConfig {
 }
 
 /// Discord OAuth2 application credentials.
+///
+/// The client secret is `Option` because Discord only ever shows it once, in the
+/// Developer Portal, and it cannot be read back over the API — so an installation
+/// may legitimately not have it. Refusing to start over it would take the whole
+/// API down, including the routes that have nothing to do with logging in, to
+/// disable one flow. A missing secret disables dashboard login and says so; see
+/// [`DiscordOAuthConfig::is_configured`].
 #[derive(Debug, Clone)]
 pub struct DiscordOAuthConfig {
     pub client_id: String,
-    client_secret: String,
+    client_secret: Option<String>,
     pub redirect_uri: String,
 }
 
 impl DiscordOAuthConfig {
     pub fn from_env(web_origin: &str) -> Result<Self> {
-        let client_secret = crate::required("DISCORD_CLIENT_SECRET")?;
+        let client_secret = crate::optional("DISCORD_CLIENT_SECRET", "");
         let redirect_uri = crate::optional(
             "DISCORD_REDIRECT_URI",
             &format!(
@@ -71,13 +78,26 @@ impl DiscordOAuthConfig {
 
         Ok(Self {
             client_id: crate::required("DISCORD_CLIENT_ID")?,
-            client_secret,
+            // An empty value is a `.env` key someone left blank, which means
+            // "not configured" rather than "the secret is the empty string".
+            client_secret: Some(client_secret).filter(|secret| !secret.trim().is_empty()),
             redirect_uri,
         })
     }
 
-    pub fn client_secret(&self) -> &str {
-        &self.client_secret
+    /// The secret, or `None` when this installation has none.
+    pub fn client_secret(&self) -> Option<&str> {
+        self.client_secret.as_deref()
+    }
+
+    /// Whether the consent-code exchange can run at all.
+    ///
+    /// The consent screen itself needs only the client id and the redirect URI, so
+    /// a half-configured installation can still build a URL that will fail at the
+    /// exchange. Handlers check this *before* redirecting the browser, so the user
+    /// gets an immediate, accurate refusal instead of a Discord error page.
+    pub fn is_configured(&self) -> bool {
+        self.client_secret.is_some()
     }
 
     pub fn token_endpoint(&self) -> &'static str {
@@ -146,5 +166,34 @@ mod tests {
     #[test]
     fn leaves_unreserved_characters_alone() {
         assert_eq!(urlencode("aZ0-_.~"), "aZ0-_.~");
+    }
+
+    /// Built directly rather than through `from_env`: `unsafe_code` is forbidden,
+    /// so a test cannot call `set_var`, and the fields are crate-private precisely
+    /// so the constructor's decisions can be checked without an environment.
+    fn with_secret(secret: Option<&str>) -> DiscordOAuthConfig {
+        DiscordOAuthConfig {
+            client_id: "1".to_string(),
+            client_secret: secret.map(str::to_string),
+            redirect_uri: "https://example.test/cb".to_string(),
+        }
+    }
+
+    /// Discord shows the client secret once and never returns it over the API, so
+    /// an installation can genuinely lack one. That must read as "login is off",
+    /// not as a crash and not as "the secret is the empty string" — the latter
+    /// would post an empty credential and get back `invalid_client`, which reads
+    /// as a wrong password rather than a missing setup.
+    #[test]
+    fn a_missing_client_secret_disables_login_rather_than_faking_one() {
+        assert!(!with_secret(None).is_configured());
+        assert_eq!(with_secret(None).client_secret(), None);
+    }
+
+    #[test]
+    fn a_present_client_secret_enables_login() {
+        let config = with_secret(Some("a-real-secret"));
+        assert!(config.is_configured());
+        assert_eq!(config.client_secret(), Some("a-real-secret"));
     }
 }

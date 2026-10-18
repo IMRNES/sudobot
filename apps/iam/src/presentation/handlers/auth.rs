@@ -44,6 +44,13 @@ fn pending_states() -> &'static Mutex<HashMap<String, DateTime<Utc>>> {
 /// declare — but nothing in it is read.
 #[instrument(skip_all)]
 pub async fn authorize(State(state): State<AppState>) -> Result<Json<AuthorizeResponse>, AppError> {
+    // Checked before minting a state: sending the user to Discord's consent screen
+    // when the exchange is guaranteed to fail strands them on an error page with
+    // no explanation. An immediate refusal names the actual problem.
+    if !state.oauth_client.is_configured() {
+        return Err(AppError::from(AuthError::LoginNotConfigured));
+    }
+
     let now = state.clock.now();
     let oauth_state = generate_state();
 

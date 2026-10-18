@@ -29,6 +29,15 @@ pub struct DiscordGuildSummary {
 
 #[derive(Debug, Error)]
 pub enum DiscordOAuthError {
+    /// This installation has no Discord OAuth client secret.
+    ///
+    /// Distinct from [`InvalidCode`](Self::InvalidCode) because it is a
+    /// configuration fact rather than a rejection: Discord only shows the secret
+    /// once and never returns it over the API, so an installation can genuinely
+    /// lack one.
+    #[error("this installation has no discord oauth client secret configured")]
+    NotConfigured,
+
     #[error("discord rejected the authorization code")]
     InvalidCode,
 
