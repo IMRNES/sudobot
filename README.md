@@ -87,6 +87,22 @@ first request that needs it.
 
 See `.env.example` for the full list with defaults.
 
+### Dashboard sign-in needs two things only the Developer Portal can set
+
+Both are deliberately optional at startup, so a bot-only deployment runs without
+them — but until they exist, `POST /auth/discord/authorize` answers `503` with
+`code: "not_configured"` and the dashboard shows the message instead of a login
+button that goes nowhere.
+
+1. **The client secret.** Discord shows `DISCORD_CLIENT_SECRET` exactly once, when
+   it is generated. It is not readable back over the API — `GET /applications/@me`
+   has no such field — so a lost secret must be reset in the portal.
+2. **The redirect URI.** Add
+   `https://<host>/api/v1/iam/auth/discord/callback` to
+   Developer Portal → OAuth2 → Redirects. This is also not settable over the API:
+   `PATCH /applications/@me` accepts `redirect_uris`, returns `200`, and leaves the
+   list empty. `GET` will keep reporting `[]` until a human adds it.
+
 ## Schema changes
 
 Migrations are a separate binary, not something the server does on boot. A schema
