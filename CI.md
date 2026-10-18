@@ -3,6 +3,12 @@
 `.github/workflows/ci.yml` is the source of truth; this file only explains what it
 does and why, so the reasoning survives a workflow edit.
 
+`deploy.yml` **calls** this file rather than repeating it, so a pull request and a
+push to main are gated by the same steps. `ci.yml` therefore has no `push` trigger
+of its own: main is covered by the deploy run that calls it, and triggering on both
+would run the whole suite twice for every main commit and leave two definitions of
+"the checks" to drift apart.
+
 Two jobs.
 
 **`rust`** runs against a PostgreSQL service container, in this order:
@@ -25,6 +31,28 @@ Two jobs.
 **`web`** type-checks, lints with Biome, and builds. The build also generates
 `routeTree.gen.ts`, so a route file the plugin cannot parse fails here rather than
 at deploy time.
+
+## The deploy pipeline
+
+`.github/workflows/deploy.yml` adds three jobs after the gate, all of which skip on a
+pull request:
+
+- **`web-artifact`** builds the dashboard. `VITE_API_BASE_URL` is empty on purpose:
+  the SPA and the API are served from one origin, so every request is relative and
+  CORS does not exist in production.
+- **`build`** compiles the four release binaries and assembles the payload, asserting
+  each executable and `web/index.html` exist *before* uploading. A build that produced
+  three binaries then fails on the runner instead of after the old release has been
+  stopped.
+- **`deploy`** ships the payload and runs `scripts/deploy-direct.sh` on the host,
+  which installs the release, applies migrations through the same secret path the
+  service uses, flips the `current` symlink, and health-checks over HTTP. A failed
+  health check restores the previous release.
+
+`workflow_dispatch` runs the whole file from the dispatched ref, so the deploy job is
+gated on `github.ref == 'refs/heads/main'` rather than on the event name — an
+event-based gate would let a dispatch aimed at a branch deploy that branch over
+production.
 
 ## Running it locally
 

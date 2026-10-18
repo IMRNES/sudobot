@@ -183,13 +183,64 @@ silent.
   handlers do not supply. The count is exact on the delete and matrix paths, which
   take a member repository. Closing it is one line per handler:
   `ListGuildRolesUseCase::with_counts(roles, MemberRoleCounts::new(members))`.
-- **Reward roles are only reconciled on a level change.** A reward added *after*
-  members have already passed its level is not granted retroactively; that needs a
-  reconciliation pass over the profiles above the new threshold.
+- **A reward role is only granted by the level-change path, plus one explicit
+  sweep.** `plan_role_changes` runs when a member *levels up*, so a reward
+  configured after members have already passed its level reaches them only through
+  `/leveling sync` or the sweep the bot runs at startup. There is no continuous
+  reconciler: a rung added while the bot is running waits for the next deploy or a
+  manual sync.
 - **A failed role grant after a purchase is not rolled back.** The ledger has
   already moved, so the reply says the purchase succeeded and the role could not be
   given. An admin grants it by hand; an automatic retry would need the pending-grant
   queue the autoroles already have.
+
+## The level ladder is data, not configuration
+
+`domain/leveling/ladder.rs` declares the 21 rungs. The bot creates Discord roles
+from that table and the dashboard renders the same names, which is what keeps a
+member's title on their profile identical to the reward list entry that granted it.
+
+Two consequences that read as bugs until you know they are the design:
+
+**Every rung grants zero permissions, by construction.** `LadderRung::permissions()`
+returns `0` and provisioning passes it to Discord, so "cosmetic" is a property of
+the data rather than a promise in a README. A ladder that granted a permission would
+be an escalation handed out automatically by a chat bot.
+
+**Level 0 is a real rung, and is the reason a sync pass exists.** Nobody levels up
+*into* level 0, so the level-change path can never grant `Neophyte`. It is granted on
+join, and by `sync_members`. Without that pass the first rung is a role no member
+ever wears.
+
+`plan_role_changes` owns the stacking rule and both halves of it consult the roles a
+member actually holds: Discord answers a removal of a role the member does not have
+with an error, so proposing it turns a reconcile into a failed API call per member.
+An empty slice means *wears nothing*, not *unknown*, and both halves honour it.
+
+## Deployment: build in CI, ship binaries
+
+The compile happens in GitHub Actions; only four executables and a static dashboard
+travel to the host. Cloning and building on the host would put ~700 MB of `target/`
+on a box that also runs other services, for a payload measured in tens of megabytes.
+
+Secrets come from Bitwarden Secrets Manager through `bws-exec`, in each unit's
+`ExecStart`, as `<app>_<KEY>` keys. Not `EnvironmentFile=`: systemd loads those
+*before* `ExecStartPre` runs, so a file written by a pre-step is not there yet when
+systemd reads it. The wrapper fetches, exports and execs in one process, which is the
+ordering that works. The consequence worth knowing is that adding a variable is a
+`bws secret create` and nothing else — no unit edit, no file on the host.
+
+The level ladder is provisioned at startup from `DISCORD_PROVISION_GUILD_ID`, so a
+deploy produces the same guild state rather than depending on someone running a
+slash command by hand. It is best-effort: a guild the bot has been removed from, or
+a missing `Manage Roles`, is logged and the bot keeps serving.
+
+The one failure an operator must fix by hand is role position. Discord only lets a
+bot assign roles *below its own highest role*, so a bot role left underneath the
+ladder makes every grant fail with `Missing Permissions` while the ladder looks
+correctly installed. Provisioning raises its own role and then **reads back** to
+verify; when it cannot, the report names the highest rung that will not work instead
+of reporting success.
 
 ## What was left out, and where it would go
 

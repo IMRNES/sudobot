@@ -37,17 +37,36 @@ pnpm install && pnpm --filter web dev   # the dashboard on :5173
 
 ## Deploying
 
-```bash
-cp .env.example .env       # fill in the Discord credentials and a JWT secret
-docker compose up -d
+Production is **imrnes** (`sudobot.imrnes.team`), deployed by GitHub Actions on
+every push to `main`. Nothing is built on the host: CI compiles four release
+binaries plus the dashboard, and only those artifacts travel.
+
+```
+push to main
+  -> ci.yml        fmt, clippy -D warnings, unit tests, migrations up/down vs Postgres
+  -> build         cargo build --release, assemble + audit the payload
+  -> deploy        scp the payload, run scripts/deploy-direct.sh on the host
 ```
 
-`docker-compose.yml` runs PostgreSQL, applies migrations as a one-shot service,
-seeds with `bootstrap`, then starts the API, the bot and nginx — all three waiting
-on the migration step, so a failed schema change stops the deploy rather than
-starting an application against a half-built database. The web container serves
-the SPA and proxies `/api` to the gateway, so the browser sees one origin and
-cookies are same-site.
+The script installs `/opt/sudobot/releases/<sha>`, flips the `current` symlink,
+applies migrations through the same secret path the service uses, restarts
+`sudobot-gateway` and `sudobot-bot`, and health-checks the API over HTTP. A failed
+check restores the previous release automatically.
+
+Configuration comes from Bitwarden Secrets Manager via `bws-exec`, as
+`sudobot_<KEY>` keys, so adding a variable is `bws secret create` and nothing else
+— no unit edit and no file on the host.
+
+The level ladder is provisioned at startup from `DISCORD_PROVISION_GUILD_ID`, so a
+deploy reproduces the guild's roles rather than depending on a manual slash
+command. See `ARCHITECTURE.md` for why each rung is permissionless and why level 0
+needs a join-time grant.
+
+`docker-compose.yml` remains a self-contained alternative for running the whole
+stack somewhere without CI. It applies migrations as a one-shot service and seeds
+with `bootstrap`, then starts the API, the bot and nginx — all three waiting on the
+migration step, so a failed schema change stops the deploy rather than starting an
+application against a half-built database.
 
 ## Configuration
 
