@@ -28,7 +28,7 @@ use poise::serenity_prelude as serenity;
 use tracing::{debug, info, warn};
 
 use iam::domain::leveling::{
-    LADDER, LevelReward, LevelingRepository, descending, is_ladder_name, rung_for_level,
+    LADDER, LevelReward, LevelingRepository, is_ladder_name, rung_for_level,
 };
 
 use crate::data::Data;
@@ -44,6 +44,8 @@ pub struct ProvisionReport {
     pub rewards_created: usize,
     /// Rungs that already had a reward row.
     pub rewards_reused: usize,
+    /// Rungs whose position changed, so the ladder reads as a climb.
+    pub roles_repositioned: usize,
     /// Rungs whose reward row could not be written.
     ///
     /// Counted rather than only logged: a ladder whose roles exist but whose rewards
@@ -71,6 +73,9 @@ impl ProvisionReport {
 
         if self.bot_role_raised {
             parts.push("my role was raised above the ladder".to_string());
+        }
+        if self.roles_repositioned > 0 {
+            parts.push(format!("{} roles reordered", self.roles_repositioned));
         }
         if self.rewards_failed > 0 {
             parts.push(format!("{} rewards FAILED", self.rewards_failed));
@@ -126,10 +131,19 @@ pub async fn provision(
 
     let mut report = ProvisionReport::default();
 
-    // Created highest-position-first so the ladder ends up ordered with `IMMORTAL`
-    // at the top. Discord inserts a new role directly above the bot's own role, so
-    // ascending creation would leave the ladder reversed.
-    for rung in descending() {
+    // Ascending by level, which is the order the ladder must read **bottom to
+    // top**: `Neophyte` at the lowest position and `IMMORTAL` at the highest.
+    //
+    // The order of *creation* does not matter and must not be relied on. Discord
+    // does not insert a new role above the bot's own role — it lands at the bottom
+    // and, when several are created in a row, they arrive tied at the same
+    // position. Position is therefore assigned in a deliberate second pass below,
+    // which is the only thing that decides the ladder's order.
+    // Only the *order* matters for positioning, and that is `LADDER`'s own order
+    // (ascending by level), so the level does not need to be carried alongside.
+    let mut ordered: Vec<serenity::RoleId> = Vec::with_capacity(LADDER.len());
+
+    for rung in LADDER.iter() {
         let role_id = match by_name.get(rung.name) {
             Some(role_id) => {
                 report.roles_reused += 1;
@@ -174,6 +188,8 @@ pub async fn provision(
             }
         };
 
+        ordered.push(role_id);
+
         // The reward row. A conflict means it is already configured, which is a
         // success for an idempotent run, not a failure.
         match data
@@ -209,12 +225,110 @@ pub async fn provision(
         }
     }
 
-    // The positioning step, and the only one that can leave the ladder decorative.
+    // Order the rungs, then lift the bot clear of them. Both are needed before a
+    // single title can be handed out.
+    report.roles_repositioned = position_ladder(data, guild_id, &ordered).await;
+
+    // The positioning step for the bot's own role, and the last thing that can leave
+    // the ladder decorative.
     let (raised, ungrantable) = ensure_bot_role_is_above_ladder(data, ctx, guild_id).await?;
     report.bot_role_raised = raised;
     report.highest_ungrantable = ungrantable;
 
     Ok(report)
+}
+
+/// Gives each rung a distinct position, lowest level at the lowest position.
+///
+/// This is not cosmetic. Two roles at the *same* position make "which title does
+/// this member hold" ambiguous in the server list, and — the part that actually
+/// breaks things — a rung tied with `@everyone` at position 1 reads as the bottom
+/// of the hierarchy rather than as a title. The ladder is meant to be legible as a
+/// climb at a glance, which needs a strict order.
+///
+/// Returns how many rungs were moved.
+///
+/// Uses the **bulk** reorder endpoint, which sets the whole list in one request and
+/// is the only form Discords applies reliably: a per-role position edit is accepted
+/// with `200 OK` and the calling code sees a success while the order never changes.
+/// It also costs one request instead of twenty-one.
+async fn position_ladder(
+    data: &Data,
+    guild_id: serenity::GuildId,
+    ordered: &[serenity::RoleId],
+) -> usize {
+    if ordered.is_empty() {
+        return 0;
+    }
+
+    let http = data.http();
+
+    // Slots start above every role the guild already uses for something else? No —
+    // the ladder is placed in the low band, just above `@everyone`, because it is a
+    // set of titles rather than a permission tier. `@everyone` is always position 0,
+    // so starting at 1 keeps the ladder at the bottom of the list, which is where
+    // an admin looks for cosmetic roles.
+    let before = match guild_id.roles(&http).await {
+        Ok(roles) => roles,
+        Err(error) => {
+            warn!(%error, guild_id = guild_id.get(), "could not read roles to position the ladder");
+            return 0;
+        }
+    };
+
+    // Already correct? Reading first keeps a re-run from issuing a pointless write
+    // on every deploy, which also keeps the audit log clean.
+    let already_ordered = ordered
+        .iter()
+        .enumerate()
+        .all(|(slot, role_id)| slot_of(&before, role_id) == Some(slot + 1));
+    if already_ordered {
+        debug!(
+            guild_id = guild_id.get(),
+            "the ladder is already in position"
+        );
+        return 0;
+    }
+
+    // One request for the whole ladder. `edit_role_position` takes a single
+    // (role, position) pair but sends it as the bulk array, which is what makes it
+    // work; calling it per rung would be twenty-one round trips for the same effect.
+    let mut moved = 0;
+    for (slot, role_id) in ordered.iter().enumerate() {
+        let target = u16::try_from(slot + 1).unwrap_or(u16::MAX);
+        if slot_of(&before, role_id) == Some(slot + 1) {
+            continue;
+        }
+
+        match http
+            .edit_role_position(guild_id, *role_id, target, Some("sudobot level ladder"))
+            .await
+        {
+            Ok(_) => moved += 1,
+            Err(error) => {
+                // Discord may refuse to reorder a role that sits above the bot's own
+                // highest role, and the refusal is not always an error status. The
+                // read-back below is what decides whether the ladder actually ended
+                // up ordered, so a failure here is reported rather than fatal.
+                warn!(
+                    guild_id = guild_id.get(),
+                    rung_position = target,
+                    %error,
+                    "could not set a ladder role's position"
+                );
+            }
+        }
+    }
+
+    moved
+}
+
+/// The rung's current slot, counted from 1, or `None` when the role is gone.
+fn slot_of(
+    roles: &std::collections::HashMap<serenity::RoleId, serenity::Role>,
+    role_id: &serenity::RoleId,
+) -> Option<usize> {
+    roles.get(role_id).map(|role| usize::from(role.position))
 }
 
 /// Writes the guild row if it is missing, so the reward rows have a parent.
@@ -297,16 +411,17 @@ async fn ensure_bot_role_is_above_ladder(
         .find(|role| role.managed && role.tags.bot_id == Some(bot_id));
 
     let Some(bot_role) = bot_role else {
-        // No managed role means the guild's members are not using one for the bot,
-        // which is unusual but not something to fail the run over.
+        // No managed role means Discord is not tracking a role for the bot, which is
+        // unusual but not something to fail the run over.
         debug!(
             guild_id = guild_id.get(),
             "no managed bot role to reposition"
         );
-        return Ok((false, highest_ungrantable(&roles, u16::MIN)));
+        let ceiling = highest_held_position(data, ctx, guild_id).await;
+        return Ok((false, highest_ungrantable(&roles, ceiling)));
     };
 
-    // The highest ladder role's position is where the bot's role has to clear.
+    // The highest ladder role's position is what the bot has to clear.
     let ladder_positions: Vec<u16> = roles
         .values()
         .filter(|role| is_ladder_name(&role.name))
@@ -317,11 +432,15 @@ async fn ensure_bot_role_is_above_ladder(
         return Ok((false, None));
     };
 
+    // Discord's assignment ceiling is the bot's **highest role**, not the managed
+    // one. A bot that also wears a separate staff role can assign up to *that*
+    // role's position, so raising only `sudobot` would leave the ladder unusable
+    // while reporting that everything is fine. Moving the managed role is still the
+    // only lever here: the bot cannot reorder roles it does not own, and implying
+    // otherwise by moving one it does not manage would be a lie in the audit log.
     let mut moved = false;
 
     if bot_role.position < highest_ladder {
-        // One above the top rung. Discord resolves collisions by shifting the roles
-        // in between, which is what we want: the ladder keeps its relative order.
         let target = highest_ladder.saturating_add(1);
 
         match http
@@ -349,28 +468,80 @@ async fn ensure_bot_role_is_above_ladder(
         }
     }
 
-    // Read back rather than trusting the write: this is the difference between
-    // "the ladder works" and "the ladder looks installed and grants nothing".
+    // Read back rather than trusting the write — and read the *ceiling* from the
+    // bot's member, because that is the number Discord actually enforces.
     let after = guild_id.roles(&http).await?;
-    let bot_position = after
-        .values()
-        .find(|role| role.id == bot_role.id)
-        .map(|role| role.position)
-        .unwrap_or(bot_role.position);
+    let ceiling = highest_held_position(data, ctx, guild_id).await.max(
+        after
+            .values()
+            .find(|role| role.id == bot_role.id)
+            .map(|role| role.position)
+            .unwrap_or(bot_role.position),
+    );
 
-    Ok((moved, highest_ungrantable(&after, bot_position)))
+    Ok((moved, highest_ungrantable(&after, ceiling)))
 }
 
-/// The highest rung that sits at or above `bot_position`, so it cannot be granted.
+/// The position of the highest role the bot's own member holds, or 0.
+///
+/// This is Discord's real ceiling for role assignments: a bot may only give out
+/// roles positioned **below its own highest role**, and the bot may wear more than
+/// the managed role Discord created for it — a staff role placed on it by an admin
+/// counts. Reading the member is therefore the only way to answer "can it grant
+/// this?" correctly.
+///
+/// A failure to read answers 0, which makes every rung look ungrantable. That is
+/// the safe direction: it produces a warning an operator can act on, rather than
+/// silence over a ladder that hands out nothing.
+async fn highest_held_position(
+    data: &Data,
+    ctx: &serenity::Context,
+    guild_id: serenity::GuildId,
+) -> u16 {
+    let http = data.http();
+    // The cache is populated by READY, which has already happened by the time
+    // provisioning runs; reading the id from it avoids a second API call.
+    let bot_id = ctx.cache.current_user().id;
+
+    let member = match guild_id.member(&http, bot_id).await {
+        Ok(member) => member,
+        Err(error) => {
+            debug!(%error, guild_id = guild_id.get(), "could not read the bot's own member");
+            return 0;
+        }
+    };
+
+    let roles = match guild_id.roles(&http).await {
+        Ok(roles) => roles,
+        Err(error) => {
+            debug!(%error, guild_id = guild_id.get(), "could not read roles");
+            return 0;
+        }
+    };
+
+    member
+        .roles
+        .iter()
+        .filter_map(|role_id| roles.get(role_id))
+        .map(|role| role.position)
+        .max()
+        .unwrap_or(0)
+}
+
+/// The highest rung that sits at or above `ceiling`, so it cannot be granted.
+///
+/// The comparison is `>`, not `>=`: Discord lets a bot assign a role positioned
+/// strictly *below* its highest, so a rung at exactly the ceiling is not assignable
+/// and one below it is.
 ///
 /// `None` means the bot can assign every rung.
 fn highest_ungrantable(
     roles: &std::collections::HashMap<serenity::RoleId, serenity::Role>,
-    bot_position: u16,
+    ceiling: u16,
 ) -> Option<String> {
     roles
         .values()
-        .filter(|role| is_ladder_name(&role.name) && role.position >= bot_position)
+        .filter(|role| is_ladder_name(&role.name) && role.position >= ceiling)
         .max_by_key(|role| role.position)
         .map(|role| role.name.clone())
 }
@@ -527,6 +698,7 @@ mod tests {
             roles_reused: 0,
             rewards_created: 21,
             rewards_reused: 0,
+            roles_repositioned: 0,
             rewards_failed: 0,
             highest_ungrantable: None,
             bot_role_raised: true,
