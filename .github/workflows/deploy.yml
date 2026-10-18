@@ -107,7 +107,7 @@ jobs:
           name: web-dist
           path: payload/web
 
-      # The payload is asserted before it is uploaded, so a build that silently
+      # The payload is asserted before it is packed, so a build that silently
       # produced fewer than four executables fails here rather than on the host
       # with the old release already stopped.
       - name: Assemble and audit the payload
@@ -133,10 +133,17 @@ jobs:
             echo "$bin:"; ldd "payload/$bin" | sed 's/^/  /'
           done
 
+      # A tar, not a directory of artifacts. `upload-artifact` does not preserve
+      # the executable bit, so a plain upload arrives on the host with four
+      # non-executable files and the deploy refuses them — a failure that only
+      # shows up after the transfer. A tar carries the mode.
+      - name: Pack the payload
+        run: tar -czf sudobot-payload.tar.gz -C payload .
+
       - uses: actions/upload-artifact@v4
         with:
           name: sudobot-payload
-          path: payload
+          path: sudobot-payload.tar.gz
           if-no-files-found: error
 
   deploy:
@@ -164,8 +171,11 @@ jobs:
           name: sudobot-payload
           path: /tmp/sudobot-payload
 
-      - name: Show the payload
+      - name: Unpack the payload
         run: |
+          set -euo pipefail
+          tar -xzf /tmp/sudobot-payload/sudobot-payload.tar.gz -C /tmp/sudobot-payload
+          rm -f /tmp/sudobot-payload/sudobot-payload.tar.gz
           ls -lh /tmp/sudobot-payload
           du -sh /tmp/sudobot-payload
 
@@ -184,8 +194,15 @@ jobs:
         run: |
           set -euo pipefail
           ssh "$VPS_USER@$VPS_HOST" "rm -rf /tmp/sudobot-payload /tmp/sudobot-systemd && mkdir -p /tmp/sudobot-payload /tmp/sudobot-systemd"
-          scp -q /tmp/sudobot-payload/* "$VPS_USER@$VPS_HOST:/tmp/sudobot-payload/"
-          scp -qr /tmp/sudobot-payload/web "$VPS_USER@$VPS_HOST:/tmp/sudobot-payload/"
+
+          # `-r` and the trailing `/.` on the source: the payload directory holds
+          # both files and the `web/` subdirectory, and a single recursive copy is
+          # the whole transfer. Copying `.../*` first and then `web` separately
+          # looks equivalent but is not — the glob already matched
+          # `/tmp/sudobot-payload/web`, so the second scp finds a directory where
+          # it wanted a regular file and fails.
+          scp -qr /tmp/sudobot-payload/. "$VPS_USER@$VPS_HOST:/tmp/sudobot-payload/"
+
           scp -q systemd/sudobot-gateway.service systemd/sudobot-bot.service systemd/sudobot.caddy \
             "$VPS_USER@$VPS_HOST:/tmp/sudobot-systemd/"
 
