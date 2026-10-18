@@ -92,6 +92,12 @@ if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
   log "creating the $SERVICE_USER service account"
   useradd --system --create-home --home-dir "$ROOT" --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
+
+# 0755, not the 0750 `useradd` leaves behind. Caddy runs as its own user and serves
+# the dashboard straight from current/web, so it has to be able to *traverse* this
+# directory. Without the x bit for others it answers 403 for every request while a
+# curl from the host as root works fine, which reads as a Caddy problem.
+install -d -m 0755 "$ROOT"
 # Group membership on /etc/bws-token is what lets the service account read the BWS
 # token without that file being world-readable. Absent group is not fatal: an
 # operator may be exporting BWS_ACCESS_TOKEN into the unit instead.

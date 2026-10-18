@@ -13,10 +13,22 @@ pub enum RepositoryError {
     #[error("{entity} not found")]
     NotFound { entity: &'static str },
 
-    /// A uniqueness or foreign-key constraint rejected the write. The message is
-    /// written for a human reading an API response, not for a log line.
+    /// A unique constraint rejected the write: the row already exists. The message
+    /// is written for a human reading an API response, not for a log line.
     #[error("{0}")]
     Conflict(String),
+
+    /// A foreign-key constraint rejected the write: the row this one points at does
+    /// not exist.
+    ///
+    /// Deliberately **not** folded into [`Conflict`](Self::Conflict). The two read
+    /// alike in a response body but mean opposite things to a caller: `Conflict`
+    /// says "already done", which an idempotent write can treat as success, while
+    /// this says "not done, and retrying will not help" — an upsert that inserts a
+    /// child before its parent would otherwise report a cheerful "already present"
+    /// for every row it failed to write.
+    #[error("{0}")]
+    MissingReference(String),
 
     /// The storage layer failed in a way the caller cannot act on. Logged with
     /// its source; surfaced to clients as an opaque 500.
@@ -39,6 +51,10 @@ impl RepositoryError {
         Self::Conflict(message.into())
     }
 
+    pub fn missing_reference(message: impl Into<String>) -> Self {
+        Self::MissingReference(message.into())
+    }
+
     pub fn database(message: impl Into<String>) -> Self {
         Self::Database(message.into())
     }
@@ -57,8 +73,21 @@ impl RepositoryError {
     pub fn is_client_error(&self) -> bool {
         matches!(
             self,
-            Self::NotFound { .. } | Self::Conflict(_) | Self::InvalidData { .. }
+            Self::NotFound { .. }
+                | Self::Conflict(_)
+                | Self::MissingReference(_)
+                | Self::InvalidData { .. }
         )
+    }
+
+    /// True when the write was rejected because the row **already exists**.
+    ///
+    /// The question an idempotent writer actually asks. It is a method rather than
+    /// a `matches!` at each call site so no caller can confuse it with the
+    /// missing-reference case, which is the mistake this distinction exists to
+    /// prevent.
+    pub fn is_already_present(&self) -> bool {
+        matches!(self, Self::Conflict(_))
     }
 }
 

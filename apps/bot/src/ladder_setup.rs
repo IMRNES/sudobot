@@ -44,6 +44,11 @@ pub struct ProvisionReport {
     pub rewards_created: usize,
     /// Rungs that already had a reward row.
     pub rewards_reused: usize,
+    /// Rungs whose reward row could not be written.
+    ///
+    /// Counted rather than only logged: a ladder whose roles exist but whose rewards
+    /// do not grants nothing, and the reply has to be able to say so.
+    pub rewards_failed: usize,
     /// Which rung the bot's own role ended up below, if any.
     ///
     /// `None` means every rung is assignable. `Some(name)` names the highest rung
@@ -67,13 +72,20 @@ impl ProvisionReport {
         if self.bot_role_raised {
             parts.push("my role was raised above the ladder".to_string());
         }
+        if self.rewards_failed > 0 {
+            parts.push(format!("{} rewards FAILED", self.rewards_failed));
+        }
 
         parts.join(", ")
     }
 
-    /// Whether every rung is now grantable.
+    /// Whether the ladder can actually hand out every title.
+    ///
+    /// Both halves matter: a rung the bot's role sits above cannot be assigned, and
+    /// a rung with no reward row is never even attempted. Reporting the first while
+    /// ignoring the second is how a ladder that grants nothing claims to be fine.
     pub fn is_fully_functional(&self) -> bool {
-        self.highest_ungrantable.is_none()
+        self.highest_ungrantable.is_none() && self.rewards_failed == 0
     }
 }
 
@@ -89,6 +101,14 @@ pub async fn provision(
     guild_id: serenity::GuildId,
 ) -> Result<ProvisionReport, crate::Error> {
     let http = data.http();
+
+    // The guild row has to exist first. `leveling_rewards.guild_id` is a foreign
+    // key into `guilds`, so writing a reward for a guild the database has never
+    // heard of fails the constraint — and at startup it usually has not: this runs
+    // on READY, while the row is written by `GuildCreate`, which Discord sends
+    // *after* the connection is established. Reading the guild from Discord rather
+    // than waiting for the event keeps the two independent.
+    ensure_guild_recorded(data, ctx, guild_id).await?;
 
     let existing = guild_id.roles(&http).await?;
 
@@ -171,8 +191,14 @@ pub async fn provision(
             .await
         {
             Ok(_) => report.rewards_created += 1,
-            Err(iam::domain::errors::RepositoryError::Conflict(_)) => report.rewards_reused += 1,
+            // Only a genuine unique violation means "already configured".
+            // `is_already_present` rather than a `Conflict` match: a foreign-key
+            // failure used to arrive as the same variant, so a reward that could
+            // not be written at all was counted as one that already existed and the
+            // run reported success over a ladder with no rewards wired to it.
+            Err(error) if error.is_already_present() => report.rewards_reused += 1,
             Err(error) => {
+                report.rewards_failed += 1;
                 warn!(
                     guild_id = guild_id.get(),
                     rung = rung.name,
@@ -189,6 +215,60 @@ pub async fn provision(
     report.highest_ungrantable = ungrantable;
 
     Ok(report)
+}
+
+/// Writes the guild row if it is missing, so the reward rows have a parent.
+///
+/// Called before any reward is written, because the foreign key would otherwise
+/// reject the insert. It is an upsert, so a guild already recorded keeps its
+/// dashboard-set name and only the fields Discord owns are refreshed.
+async fn ensure_guild_recorded(
+    data: &Data,
+    ctx: &serenity::Context,
+    guild_id: serenity::GuildId,
+) -> Result<(), crate::Error> {
+    use iam::domain::guild::GuildRepository;
+
+    if data.guilds.find_by_id(guild_id.get()).await?.is_some() {
+        return Ok(());
+    }
+
+    // Read the guild rather than guessing: the row is what the dashboard lists, and
+    // a placeholder name would show up there.
+    let guild = guild_id.to_partial_guild(&data.http()).await?;
+
+    data.guilds
+        .upsert(iam::domain::guild::NewGuild {
+            id: guild.id.get(),
+            name: guild.name.clone(),
+            icon_url: guild.icon_url(),
+            owner_discord_id: Some(guild.owner_id.get()),
+            // A partial guild carries an *approximate* count, and only when Discord
+            // chose to include it — `None` is normal here, not an error. The count
+            // is cosmetic on the dashboard and is refreshed by the next
+            // `GuildCreate`, so a zero is the honest placeholder rather than a
+            // failure.
+            member_count: guild
+                .approximate_member_count
+                .and_then(|count| i32::try_from(count).ok())
+                .unwrap_or_default(),
+        })
+        .await?;
+
+    // The dashboard has nothing to show without its system roles, and this path may
+    // be the first time the guild is ever seen — a bot added while it was offline
+    // never gets a `GuildCreate`. `ctx` is unused by the seeding but kept in the
+    // signature for symmetry with the rest of this module.
+    let _ = ctx;
+    if let Err(error) = crate::bootstrap_guild::seed_system_roles(data, guild_id.get()).await {
+        warn!(%error, guild_id = guild_id.get(), "could not seed the guild's system roles");
+    }
+
+    debug!(
+        guild_id = guild_id.get(),
+        "recorded the guild before provisioning"
+    );
+    Ok(())
 }
 
 /// Raises the bot's own managed role above the ladder, and verifies it landed.
@@ -447,6 +527,7 @@ mod tests {
             roles_reused: 0,
             rewards_created: 21,
             rewards_reused: 0,
+            rewards_failed: 0,
             highest_ungrantable: None,
             bot_role_raised: true,
         };
@@ -455,6 +536,27 @@ mod tests {
         assert!(summary.contains("21 roles created"));
         assert!(summary.contains("my role was raised"));
         assert!(report.is_fully_functional());
+    }
+
+    /// The regression this field exists for: a run whose roles were all created but
+    /// whose rewards were all rejected reported "fully functional" because only the
+    /// role-position half was consulted. A ladder with no reward rows grants nothing,
+    /// so it must not claim otherwise.
+    #[test]
+    fn a_failed_reward_makes_the_report_not_fully_functional() {
+        let report = ProvisionReport {
+            roles_created: 21,
+            rewards_created: 0,
+            rewards_failed: 21,
+            highest_ungrantable: None,
+            ..ProvisionReport::default()
+        };
+
+        assert!(
+            !report.is_fully_functional(),
+            "21 roles and zero wired rewards is a decorative ladder"
+        );
+        assert!(report.summary().contains("21 rewards FAILED"));
     }
 
     #[test]

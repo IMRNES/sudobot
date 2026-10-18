@@ -11,16 +11,29 @@ use crate::domain::errors::RepositoryError;
 
 /// Translates a driver error into the domain's vocabulary.
 ///
-/// `conflict` is what a human should read in an API response when a constraint
-/// rejected the write — "a guild with that slug already exists" beats
+/// `conflict` is what a human should read in an API response when a unique
+/// constraint rejected the write — "a guild with that slug already exists" beats
 /// `duplicate key value violates unique constraint "uq_guild_roles_guild_slug"`.
+///
+/// A **foreign-key** violation is mapped separately, to
+/// [`RepositoryError::MissingReference`], because it is the opposite situation: the
+/// row does not exist and the parent it needs is absent. Reporting it as a conflict
+/// is how an upsert that writes a child before its parent gets to believe every
+/// failed insert was "already present".
 pub fn map_db_err(entity: &'static str, conflict: &'static str, error: DbErr) -> RepositoryError {
     match &error {
         DbErr::RecordNotFound(_) => RepositoryError::not_found(entity),
         DbErr::RecordNotInserted | DbErr::RecordNotUpdated => RepositoryError::conflict(conflict),
         _ => match error.sql_err() {
             Some(SqlErr::UniqueConstraintViolation(_)) => RepositoryError::conflict(conflict),
-            Some(SqlErr::ForeignKeyConstraintViolation(_)) => RepositoryError::conflict(conflict),
+            Some(SqlErr::ForeignKeyConstraintViolation(detail)) => {
+                // The driver's detail names the constraint, which is the only place
+                // the operator can learn *which* parent was missing.
+                tracing::warn!(entity, detail = %detail, "write rejected by a foreign key");
+                RepositoryError::missing_reference(format!(
+                    "the row {entity} points at does not exist"
+                ))
+            }
             // `sql_err` only classifies those two, and nothing else the driver can
             // return is something a caller could act on — so it is a 500, and the
             // operator needs the detail in the log because the client will not get it.

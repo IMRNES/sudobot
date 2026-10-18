@@ -28,6 +28,11 @@ pub enum AppError {
     /// refresh and retry, which is why it is not simply a 401.
     Forbidden(String),
     NotFound(String),
+    /// The request is well-formed but points at a row that does not exist, and the
+    /// write cannot proceed without it. Distinct from `NotFound`, which is about the
+    /// address the client called: here the URL was fine and a *referenced* id was
+    /// not.
+    UnprocessableEntity(String),
     Conflict(String),
     /// The caller is out of attempts. Kept distinct from `Forbidden` so clients
     /// can back off rather than re-authenticate.
@@ -71,6 +76,7 @@ impl AppError {
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::UnprocessableEntity(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
             Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
@@ -88,6 +94,7 @@ impl AppError {
             | Self::Unauthorized(message)
             | Self::Forbidden(message)
             | Self::NotFound(message)
+            | Self::UnprocessableEntity(message)
             | Self::Conflict(message)
             | Self::Unavailable(message) => message.clone(),
             Self::TooManyRequests => "too many requests; try again shortly".to_string(),
@@ -128,6 +135,11 @@ impl From<RepositoryError> for AppError {
         match error {
             RepositoryError::NotFound { entity } => Self::NotFound(format!("{entity} not found")),
             RepositoryError::Conflict(message) => Self::Conflict(message),
+            // 422, not 409: the request is well-formed and the referenced row simply
+            // is not there. A 409 would tell the client to re-read and retry against
+            // a resource that does not exist, and a 500 would hide a client mistake
+            // behind a server fault.
+            RepositoryError::MissingReference(message) => Self::UnprocessableEntity(message),
             RepositoryError::InvalidData { field, value } => {
                 Self::Internal(format!("stored value for `{field}` is invalid: {value}"))
             }
