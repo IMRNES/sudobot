@@ -179,6 +179,11 @@ async fn a_bare_patch_field_leaves_the_stored_value_alone() {
             welcome_message: None,
             welcome_embed_color: None,
             welcome_dm_enabled: None,
+            embed_title: None,
+            embed_description: None,
+            embed_author: None,
+            embed_image_url: None,
+            embed_thumbnail_url: None,
             goodbye_enabled: None,
             goodbye_channel_id: None,
             goodbye_message: None,
@@ -210,6 +215,11 @@ async fn a_double_none_clears_the_field() {
             welcome_message: None,
             welcome_embed_color: Some(None),
             welcome_dm_enabled: None,
+            embed_title: None,
+            embed_description: None,
+            embed_author: None,
+            embed_image_url: None,
+            embed_thumbnail_url: None,
             goodbye_enabled: None,
             goodbye_channel_id: None,
             goodbye_message: None,
@@ -240,6 +250,11 @@ async fn a_template_with_a_typo_is_refused_at_save_time() {
             welcome_message: Some("welcome {membercount}!".to_string()),
             welcome_embed_color: None,
             welcome_dm_enabled: None,
+            embed_title: None,
+            embed_description: None,
+            embed_author: None,
+            embed_image_url: None,
+            embed_thumbnail_url: None,
             goodbye_enabled: None,
             goodbye_channel_id: None,
             goodbye_message: None,
@@ -567,4 +582,78 @@ async fn a_panel_is_found_by_id_in_its_own_guild() {
         .expect("same guild, same panel");
 
     assert_eq!(found.panel.id, own_id);
+}
+
+/// The card is carried through to the posted message, and its text fields are
+/// rendered from the same template as the content — a placeholder inside the embed
+/// has to be substituted too, or every welcome would greet `{mention}`.
+#[tokio::test]
+async fn the_embed_card_travels_with_the_message() {
+    let store = store();
+    seed_config(
+        &store,
+        WelcomeConfig {
+            embed_title: Some("IMRNES Community".to_string()),
+            embed_description: Some("A place for {guild}".to_string()),
+            embed_author: Some("imrnes.team".to_string()),
+            embed_image_url: Some("https://example.test/card.jpg".to_string()),
+            embed_thumbnail_url: Some("https://example.test/logo.png".to_string()),
+            ..enabled_config()
+        },
+    );
+
+    let message = BuildWelcomeMessageUseCase::new(FakeWelcome::new(store))
+        .execute(BuildWelcomeMessageQuery {
+            guild_id: GUILD,
+            guild_name: "Test Guild".to_string(),
+            member_count: 5,
+            discord_user_id: 99,
+            username: "arrival".to_string(),
+            kind: WelcomeKind::Welcome,
+        })
+        .await
+        .expect("the message builds")
+        .expect("a channel is configured");
+
+    let card = message.embed.expect("the card is attached");
+    assert_eq!(card.title.as_deref(), Some("IMRNES Community"));
+    assert_eq!(card.author.as_deref(), Some("imrnes.team"));
+    assert_eq!(
+        card.image_url.as_deref(),
+        Some("https://example.test/card.jpg")
+    );
+    assert_eq!(
+        card.thumbnail_url.as_deref(),
+        Some("https://example.test/logo.png")
+    );
+    assert!(
+        card.is_visible(),
+        "a card with a title renders, so it is worth attaching"
+    );
+}
+
+/// A guild that never configured a card gets no embed at all: Discord rejects an
+/// embed with no visible content, and a grey empty box is worse than a plain post.
+#[tokio::test]
+async fn a_guild_without_a_card_posts_no_embed() {
+    let store = store();
+    seed_config(&store, enabled_config());
+
+    let message = BuildWelcomeMessageUseCase::new(FakeWelcome::new(store))
+        .execute(BuildWelcomeMessageQuery {
+            guild_id: GUILD,
+            guild_name: "Test Guild".to_string(),
+            member_count: 5,
+            discord_user_id: 99,
+            username: "arrival".to_string(),
+            kind: WelcomeKind::Welcome,
+        })
+        .await
+        .expect("the message builds")
+        .expect("a channel is configured");
+
+    assert!(
+        message.embed.is_none(),
+        "no card configured means no embed, not an empty one"
+    );
 }

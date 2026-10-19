@@ -109,6 +109,11 @@ function WelcomeForm({
 			welcome_message: config.welcome_message ?? "",
 			welcome_embed_color: numberToHexColor(config.welcome_embed_color) ?? "#5865f2",
 			welcome_dm_enabled: config.welcome_dm_enabled,
+			embed_title: config.embed_title ?? "",
+			embed_description: config.embed_description ?? "",
+			embed_author: config.embed_author ?? "",
+			embed_image_url: config.embed_image_url ?? "",
+			embed_thumbnail_url: config.embed_thumbnail_url ?? "",
 			goodbye_enabled: config.goodbye_enabled,
 			goodbye_channel_id: config.goodbye_channel_id ?? "",
 			goodbye_message: config.goodbye_message ?? "",
@@ -121,6 +126,12 @@ function WelcomeForm({
 				welcome_message: value.welcome_message.trim() || null,
 				welcome_embed_color: hexColorToNumber(value.welcome_embed_color),
 				welcome_dm_enabled: value.welcome_dm_enabled,
+				// The card is shared, and an empty field means "clear this part".
+				embed_title: value.embed_title.trim() || null,
+				embed_description: value.embed_description.trim() || null,
+				embed_author: value.embed_author.trim() || null,
+				embed_image_url: value.embed_image_url.trim() || null,
+				embed_thumbnail_url: value.embed_thumbnail_url.trim() || null,
 				goodbye_enabled: value.goodbye_enabled,
 				goodbye_channel_id: value.goodbye_channel_id.trim() || null,
 				goodbye_message: value.goodbye_message.trim() || null,
@@ -254,6 +265,112 @@ function WelcomeForm({
 					)
 				}
 			</form.Subscribe>
+
+			{/* ------------------------------------------------ the embed card */}
+
+			<div className="flex flex-col gap-4 border-t border-border pt-6">
+				<div>
+					<h3 className="text-sm font-medium">Server card</h3>
+					<p className="text-xs text-muted-foreground">
+						The embed that appears under every welcome and goodbye. Shared by both, so the server's
+						branding is written once.
+					</p>
+				</div>
+
+				<FormRow>
+					<form.Field name="embed_author">
+						{(field) => (
+							<FormField
+								label="Author line"
+								htmlFor={field.name}
+								description="Small grey text above the title."
+							>
+								<Input
+									id={field.name}
+									value={field.state.value}
+									disabled={!canWrite}
+									placeholder="imrnes.team"
+									onBlur={field.handleBlur}
+									onChange={(event) => field.handleChange(event.target.value)}
+								/>
+							</FormField>
+						)}
+					</form.Field>
+
+					<form.Field name="embed_title">
+						{(field) => (
+							<FormField label="Title" htmlFor={field.name} description="Shown bold.">
+								<Input
+									id={field.name}
+									value={field.state.value}
+									disabled={!canWrite}
+									placeholder="IMRNES Community"
+									onBlur={field.handleBlur}
+									onChange={(event) => field.handleChange(event.target.value)}
+								/>
+							</FormField>
+						)}
+					</form.Field>
+				</FormRow>
+
+				<form.Field name="embed_description">
+					{(field) => (
+						<FormField
+							label="Description"
+							htmlFor={field.name}
+							description="The body of the card. Placeholders work here too."
+						>
+							<Input
+								id={field.name}
+								value={field.state.value}
+								disabled={!canWrite}
+								onBlur={field.handleBlur}
+								onChange={(event) => field.handleChange(event.target.value)}
+							/>
+						</FormField>
+					)}
+				</form.Field>
+
+				<FormRow>
+					<form.Field name="embed_image_url">
+						{(field) => (
+							<FormField
+								label="Image URL"
+								htmlFor={field.name}
+								description="The large picture under the description."
+							>
+								<Input
+									id={field.name}
+									value={field.state.value}
+									disabled={!canWrite}
+									placeholder="https://…/card.jpg"
+									onBlur={field.handleBlur}
+									onChange={(event) => field.handleChange(event.target.value)}
+								/>
+							</FormField>
+						)}
+					</form.Field>
+
+					<form.Field name="embed_thumbnail_url">
+						{(field) => (
+							<FormField
+								label="Thumbnail URL"
+								htmlFor={field.name}
+								description="The small picture in the corner."
+							>
+								<Input
+									id={field.name}
+									value={field.state.value}
+									disabled={!canWrite}
+									placeholder="https://…/logo.png"
+									onBlur={field.handleBlur}
+									onChange={(event) => field.handleChange(event.target.value)}
+								/>
+							</FormField>
+						)}
+					</form.Field>
+				</FormRow>
+			</div>
 
 			{/* ------------------------------------------------ goodbye message */}
 

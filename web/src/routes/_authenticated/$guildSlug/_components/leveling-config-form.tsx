@@ -142,8 +142,8 @@ function ConfigForm({
 				/>
 				<ToggleRow
 					id="leveling-stack-roles"
-					label="Stack reward roles"
-					description="Keep lower-level reward roles when a member earns a higher one."
+					label="Keep every rung a member has passed"
+					description="Off by default: a member wears only the role for their current level, and the previous one is removed. Turn this on to let titles accumulate instead."
 					checked={config.stack_roles}
 					disabled={!canWrite}
 					reason={deniedReason}

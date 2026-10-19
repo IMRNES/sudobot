@@ -31,7 +31,12 @@ impl LevelingConfig {
             voice_xp_multiplier: 1.0,
             curve: LevelCurve::Mrn,
             announce_channel_id: None,
-            stack_roles: true,
+            // Replace, not stack. A ladder is a statement of where a member stands
+            // now, and a member wearing twenty badges says less than one wearing
+            // the badge they earned. Stacking stays available as an opt-in for
+            // guilds that want trophies, but it is not what an unconfigured guild
+            // gets.
+            stack_roles: false,
             ignored_channel_ids: Vec::new(),
             ignored_role_ids: Vec::new(),
         }

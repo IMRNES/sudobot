@@ -26,8 +26,43 @@ pub struct WelcomeMessage {
     pub channel_id: u64,
     pub content: String,
     pub embed_color: Option<i32>,
+    /// The server's branding card, rendered into a Discord embed alongside
+    /// `content`. Empty when the guild has not configured one, in which case the
+    /// message stays a plain post — a card with no fields would be a grey box.
+    pub embed: Option<WelcomeEmbed>,
     /// Whether the same text should also go to the member's direct messages.
     pub send_dm: bool,
+}
+
+/// The rich embed that accompanies a welcome or goodbye.
+///
+/// Mirrors Discord's embed shape rather than serenity's builder: the application
+/// layer must not depend on the gateway library, and the bot already translates
+/// `embed_color` the same way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WelcomeEmbed {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    /// Shown as the small grey line above the title.
+    pub author: Option<String>,
+    /// The large image under the description.
+    pub image_url: Option<String>,
+    /// The small image in the corner.
+    pub thumbnail_url: Option<String>,
+}
+
+impl WelcomeEmbed {
+    /// Whether anything would actually render.
+    ///
+    /// A card carrying only a thumbnail is worth posting; one carrying nothing at
+    /// all is not, and Discord rejects an embed with no visible content.
+    pub fn is_visible(&self) -> bool {
+        self.title.is_some()
+            || self.description.is_some()
+            || self.author.is_some()
+            || self.image_url.is_some()
+            || self.thumbnail_url.is_some()
+    }
 }
 
 /// The message the bot posts when somebody joins (or leaves).
@@ -103,10 +138,23 @@ impl<W: WelcomeRepository> BuildWelcomeMessageUseCase<W> {
 
         let content = WelcomeConfig::render(&template, &context);
 
+        // The card is built from the stored branding. Building it here rather than
+        // in the bot means the dashboard preview and the posted message cannot
+        // drift apart, and a guild with no card configured simply gets no embed.
+        let embed = WelcomeEmbed {
+            title: config.embed_title.clone(),
+            description: config.embed_description.clone(),
+            author: config.embed_author.clone(),
+            image_url: config.embed_image_url.clone(),
+            thumbnail_url: config.embed_thumbnail_url.clone(),
+        };
+        let embed = embed.is_visible().then_some(embed);
+
         info!(
             guild_id = query.guild_id,
             channel_id,
             kind = ?query.kind,
+            has_embed = embed.is_some(),
             "welcome message built"
         );
 
@@ -114,6 +162,7 @@ impl<W: WelcomeRepository> BuildWelcomeMessageUseCase<W> {
             channel_id,
             content,
             embed_color,
+            embed,
             send_dm,
         }))
     }

@@ -42,6 +42,12 @@ pub struct UpdateWelcomeConfigCommand {
     pub welcome_channel_id: Option<Option<u64>>,
     pub welcome_message: Option<String>,
     pub welcome_embed_color: Option<Option<i32>>,
+    /// The shared embed card. `Some(None)` clears a field, `None` leaves it alone.
+    pub embed_title: Option<Option<String>>,
+    pub embed_description: Option<Option<String>>,
+    pub embed_author: Option<Option<String>>,
+    pub embed_image_url: Option<Option<String>>,
+    pub embed_thumbnail_url: Option<Option<String>>,
     pub welcome_dm_enabled: Option<bool>,
     pub goodbye_enabled: Option<bool>,
     pub goodbye_channel_id: Option<Option<u64>>,
@@ -84,6 +90,24 @@ impl<W: WelcomeRepository> UpdateWelcomeConfigUseCase<W> {
         }
         if let Some(colour) = command.welcome_embed_color {
             config.welcome_embed_color = colour;
+        }
+
+        // The card is shared, so it is applied the same way whichever message kind
+        // the caller was editing.
+        if let Some(title) = command.embed_title {
+            config.embed_title = title;
+        }
+        if let Some(description) = command.embed_description {
+            config.embed_description = description;
+        }
+        if let Some(author) = command.embed_author {
+            config.embed_author = author;
+        }
+        if let Some(image) = command.embed_image_url {
+            config.embed_image_url = image;
+        }
+        if let Some(thumbnail) = command.embed_thumbnail_url {
+            config.embed_thumbnail_url = thumbnail;
         }
         if let Some(colour) = command.goodbye_embed_color {
             config.goodbye_embed_color = colour;

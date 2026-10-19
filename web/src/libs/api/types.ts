@@ -307,6 +307,12 @@ export interface IWelcomeConfigResponse {
 	welcome_message: string | null
 	welcome_embed_color: number | null
 	welcome_dm_enabled: boolean
+	/** The shared embed card, used by both the welcome and the goodbye. */
+	embed_title: string | null
+	embed_description: string | null
+	embed_author: string | null
+	embed_image_url: string | null
+	embed_thumbnail_url: string | null
 	goodbye_enabled: boolean
 	goodbye_channel_id: string | null
 	goodbye_message: string | null

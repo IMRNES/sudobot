@@ -40,6 +40,8 @@ pub struct ProvisionReport {
     pub roles_reused: usize,
     /// Rungs whose Discord role was created.
     pub roles_created: usize,
+    /// Existing rungs switched to hoisted, so the member list groups by rung.
+    pub roles_hoisted: usize,
     /// Rungs whose reward row was created.
     pub rewards_created: usize,
     /// Rungs that already had a reward row.
@@ -147,15 +149,49 @@ pub async fn provision(
         let role_id = match by_name.get(rung.name) {
             Some(role_id) => {
                 report.roles_reused += 1;
+
+                // A reused rung still has to be brought in line: it may have been
+                // created before hoisting was the default, so it sits in the member
+                // list with no group of its own. Editing is idempotent, and doing it
+                // here means an existing ladder is fixed by the same run that would
+                // have created it.
+                let needs_hoist = existing.get(role_id).is_some_and(|role| !role.hoist);
+                if needs_hoist {
+                    // `edit_role` on the guild, not `RoleId::edit`: serenity 0.12
+                    // exposes the role edit through the guild handle here.
+                    match http
+                        .edit_role(
+                            guild_id,
+                            *role_id,
+                            &serenity::EditRole::new().hoist(true),
+                            Some("sudobot level ladder"),
+                        )
+                        .await
+                    {
+                        Ok(_) => report.roles_hoisted += 1,
+                        Err(error) => warn!(
+                            guild_id = guild_id.get(),
+                            rung = rung.name,
+                            %error,
+                            "could not hoist an existing ladder role"
+                        ),
+                    }
+                }
+
                 *role_id
             }
             None => {
                 // Permissions explicitly zero: this is the whole "cosmetic" promise,
                 // enforced at creation rather than documented and hoped for.
+                // Hoisted, so the ladder reads as a set of sections in the member
+                // list: each rung gets its own group and the members inside it are
+                // the ones at that level. Without this a 21-rung ladder is 21 roles
+                // nobody sees, because Discord only groups members under hoisted
+                // roles.
                 let builder = serenity::EditRole::new()
                     .name(rung.name)
                     .colour(serenity::Colour(rung.colour))
-                    .hoist(false)
+                    .hoist(true)
                     .mentionable(false)
                     .permissions(serenity::Permissions::from_bits_truncate(
                         iam::domain::leveling::LadderRung::permissions(),
@@ -721,6 +757,7 @@ mod tests {
         let report = ProvisionReport {
             roles_created: 21,
             roles_reused: 0,
+            roles_hoisted: 0,
             rewards_created: 21,
             rewards_reused: 0,
             roles_repositioned: 0,

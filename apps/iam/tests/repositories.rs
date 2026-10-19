@@ -677,7 +677,10 @@ async fn a_profile_is_created_once_and_xp_accumulates() {
         .await
         .expect("a missing config falls back to defaults");
     assert!(config.enabled, "leveling is on by default");
-    assert!(config.stack_roles, "titles accumulate by default");
+    assert!(
+        !config.stack_roles,
+        "a member wears their current rung, not every rung they have passed"
+    );
 }
 
 #[tokio::test]

@@ -17,6 +17,12 @@ pub struct WelcomeConfigResponse {
     pub welcome_message: Option<String>,
     pub welcome_embed_color: Option<i32>,
     pub welcome_dm_enabled: bool,
+    /// The shared embed card, echoed so the dashboard can edit it.
+    pub embed_title: Option<String>,
+    pub embed_description: Option<String>,
+    pub embed_author: Option<String>,
+    pub embed_image_url: Option<String>,
+    pub embed_thumbnail_url: Option<String>,
     pub goodbye_enabled: bool,
     #[serde(with = "optional_snowflake")]
     pub goodbye_channel_id: Option<u64>,
@@ -35,6 +41,11 @@ impl From<WelcomeConfig> for WelcomeConfigResponse {
             welcome_message: config.welcome_message,
             welcome_embed_color: config.welcome_embed_color,
             welcome_dm_enabled: config.welcome_dm_enabled,
+            embed_title: config.embed_title,
+            embed_description: config.embed_description,
+            embed_author: config.embed_author,
+            embed_image_url: config.embed_image_url,
+            embed_thumbnail_url: config.embed_thumbnail_url,
             goodbye_enabled: config.goodbye_enabled,
             goodbye_channel_id: config.goodbye_channel_id,
             goodbye_message: config.goodbye_message,
@@ -61,6 +72,16 @@ pub struct UpdateWelcomeConfigRequest {
     #[serde(default, deserialize_with = "double_option")]
     pub welcome_embed_color: Option<Option<i32>>,
     pub welcome_dm_enabled: Option<bool>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub embed_title: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub embed_description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub embed_author: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub embed_image_url: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub embed_thumbnail_url: Option<Option<String>>,
     pub goodbye_enabled: Option<bool>,
     #[serde(default, deserialize_with = "double_option")]
     pub goodbye_channel_id: Option<Option<String>>,

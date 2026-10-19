@@ -13,6 +13,14 @@ pub struct WelcomeConfig {
     pub welcome_embed_color: Option<i32>,
     pub welcome_dm_enabled: bool,
 
+    /// The embed card itself: shared by the welcome and the goodbye, because it is
+    /// the server's own branding rather than a property of either message.
+    pub embed_title: Option<String>,
+    pub embed_description: Option<String>,
+    pub embed_author: Option<String>,
+    pub embed_image_url: Option<String>,
+    pub embed_thumbnail_url: Option<String>,
+
     pub goodbye_enabled: bool,
     pub goodbye_channel_id: Option<u64>,
     pub goodbye_message: Option<String>,
@@ -30,6 +38,11 @@ impl WelcomeConfig {
             welcome_message: None,
             welcome_embed_color: None,
             welcome_dm_enabled: false,
+            embed_title: None,
+            embed_description: None,
+            embed_author: None,
+            embed_image_url: None,
+            embed_thumbnail_url: None,
             goodbye_enabled: false,
             goodbye_channel_id: None,
             goodbye_message: None,
