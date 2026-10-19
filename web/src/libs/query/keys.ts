@@ -68,6 +68,7 @@ export const queryKeys = {
 	welcome: {
 		all: (guildId: string) => ["guilds", guildId, "welcome"] as const,
 		config: (guildId: string) => [...queryKeys.welcome.all(guildId), "config"] as const,
+		preview: (guildId: string) => [...queryKeys.welcome.all(guildId), "preview"] as const,
 	},
 
 	panels: {

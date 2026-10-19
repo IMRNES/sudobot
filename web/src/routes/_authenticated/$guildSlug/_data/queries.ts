@@ -138,6 +138,19 @@ export const guildQueries = {
 			staleTime: CONFIG_STALE_TIME,
 		}),
 
+	/**
+	 * The rendered join message, for the preview pane.
+	 *
+	 * Short-lived: it is derived from the saved config, so a save invalidates it and
+	 * a stale preview is worse than a spinner.
+	 */
+	welcomePreview: (guildId: string) =>
+		queryOptions({
+			queryKey: queryKeys.welcome.preview(guildId),
+			queryFn: ({ signal }) => welcomeApi.preview(guildId, { signal }),
+			staleTime: LEADERBOARD_STALE_TIME,
+		}),
+
 	/* ----------------------------------------------------------------- panels */
 
 	panels: (guildId: string, params: IListParams) =>

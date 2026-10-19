@@ -1,9 +1,11 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { FormField, FormRow } from "#/components/features/form-field.tsx"
 import { PermissionButton } from "#/components/features/permission-button.tsx"
 import { QueryBoundary } from "#/components/features/query-boundary.tsx"
+import { Button } from "#/components/ui/button.tsx"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx"
 import { Input } from "#/components/ui/input.tsx"
 import { Label } from "#/components/ui/label.tsx"
@@ -88,6 +90,10 @@ function WelcomeForm({
 		mutationFn: welcomeApi.update.bind(null, guildId),
 		onSuccess: (updated) => {
 			queryClient.setQueryData(queryKeys.welcome.config(guildId), updated)
+			// The preview is derived from the saved config, so it is stale the moment
+			// a save lands — and a stale preview of a message template is exactly the
+			// thing an admin would trust and be wrong about.
+			void queryClient.invalidateQueries({ queryKey: queryKeys.welcome.preview(guildId) })
 			toast.success("Welcome settings saved")
 		},
 		onError: (error) => {
@@ -348,6 +354,8 @@ function WelcomeForm({
 				}
 			</form.Subscribe>
 
+			<WelcomePreview guildId={guildId} />
+
 			<div className="flex justify-end">
 				<PermissionButton
 					type="submit"
@@ -359,6 +367,56 @@ function WelcomeForm({
 				</PermissionButton>
 			</div>
 		</form>
+	)
+}
+
+/**
+ * What a new member would actually see.
+ *
+ * The server renders it from the *saved* config, because that is what the bot
+ * reads when somebody joins — showing the unsaved form would be a preview of
+ * nothing. So this says "saved", and a save invalidates it.
+ *
+ * Worth the extra request: `{Membercount}` and `{member_count}` look fine in a
+ * template and are wrong the moment a member arrives.
+ */
+function WelcomePreview({ guildId }: { guildId: string }) {
+	const query = useQuery(guildQueries.welcomePreview(guildId))
+	const rendered = query.data?.rendered ?? null
+
+	return (
+		<div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/25 p-4">
+			<div className="flex items-center justify-between gap-3">
+				<span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+					Preview — what a new member sees
+				</span>
+				<Button
+					variant="ghost"
+					size="sm"
+					disabled={query.isFetching}
+					onClick={() => void query.refetch()}
+				>
+					<RefreshCw className={query.isFetching ? "size-4 animate-spin" : "size-4"} />
+					Refresh
+				</Button>
+			</div>
+
+			{query.isError ? (
+				<p className="text-xs text-destructive">{normalizeApiError(query.error).message}</p>
+			) : query.isLoading ? (
+				<p className="text-sm text-muted-foreground">Rendering…</p>
+			) : rendered === null ? (
+				<p className="text-sm text-muted-foreground">
+					Nothing would be sent: the welcome message is off or empty.
+				</p>
+			) : (
+				<p className="text-sm break-words whitespace-pre-wrap">{rendered}</p>
+			)}
+
+			<p className="text-xs text-muted-foreground">
+				Rendered from the <strong>saved</strong> message, as a made-up member named NewMember.
+			</p>
+		</div>
 	)
 }
 

@@ -186,6 +186,16 @@ export const welcomeApi = {
 
 	update: (guildId: string, body: TWelcomeConfigUpdateRequest) =>
 		api.patch<IWelcomeConfigResponse>(`/guilds/${guildId}/welcome`, { body }),
+
+	/**
+	 * What a join message would look like right now.
+	 *
+	 * `rendered` is null when the welcome is disabled or has no message, which is a
+	 * normal answer rather than an error — the dashboard shows "nothing would be
+	 * sent" instead of an empty preview.
+	 */
+	preview: (guildId: string, options: TSignal = {}) =>
+		api.get<{ rendered: string | null }>(`/guilds/${guildId}/welcome/preview`, options),
 }
 
 /* -------------------------------------------------------------------------- */

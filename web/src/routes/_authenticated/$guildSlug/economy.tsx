@@ -65,6 +65,8 @@ function EconomyPage() {
 					guildId={guildSlug}
 					selectedId={selectedAccount}
 					onSelect={setSelectedAccount}
+					canWrite={write.allowed}
+					deniedReason={write.reason || read.reason}
 				/>
 			</div>
 
