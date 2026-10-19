@@ -11,6 +11,7 @@ mod commands;
 mod data;
 mod database;
 mod events;
+mod ladder_icons;
 mod ladder_setup;
 mod level_rewards;
 mod voice_tracker;

@@ -42,6 +42,13 @@ pub struct ProvisionReport {
     pub roles_created: usize,
     /// Existing rungs switched to hoisted, so the member list groups by rung.
     pub roles_hoisted: usize,
+    /// Existing rungs given their badge, or re-given one that had been removed.
+    ///
+    /// Counted separately from `roles_hoisted` because the two travel together but
+    /// fail apart: a rung can keep its hoist and still lose its icon to a Discord
+    /// hiccup, and a report that folds them together says "nothing to do" while
+    /// every badge is missing.
+    pub icons_applied: usize,
     /// Rungs whose reward row was created.
     pub rewards_created: usize,
     /// Rungs that already had a reward row.
@@ -156,24 +163,53 @@ pub async fn provision(
                 // here means an existing ladder is fixed by the same run that would
                 // have created it.
                 let needs_hoist = existing.get(role_id).is_some_and(|role| !role.hoist);
-                if needs_hoist {
+                // The badge is checked the same way: a rung created before the
+                // artwork existed has a bare coloured circle, and nothing else in
+                // the system would ever add one.
+                let needs_icon = existing
+                    .get(role_id)
+                    .is_some_and(|role| role.icon.is_none());
+
+                if needs_hoist || needs_icon {
+                    let mut edit = serenity::EditRole::new();
+                    if needs_hoist {
+                        edit = edit.hoist(true);
+                    }
+                    if needs_icon {
+                        if let Some(badge) = crate::ladder_icons::badge(rung.name) {
+                            let attachment = serenity::CreateAttachment::bytes(
+                                badge.png.to_vec(),
+                                badge.file.to_string(),
+                            );
+                            edit = edit.icon(Some(&attachment));
+                        } else {
+                            warn!(
+                                guild_id = guild_id.get(),
+                                rung = rung.name,
+                                "no badge is embedded for this rung; leaving the icon alone"
+                            );
+                        }
+                    }
+
                     // `edit_role` on the guild, not `RoleId::edit`: serenity 0.12
                     // exposes the role edit through the guild handle here.
                     match http
-                        .edit_role(
-                            guild_id,
-                            *role_id,
-                            &serenity::EditRole::new().hoist(true),
-                            Some("sudobot level ladder"),
-                        )
+                        .edit_role(guild_id, *role_id, &edit, Some("sudobot level ladder"))
                         .await
                     {
-                        Ok(_) => report.roles_hoisted += 1,
+                        Ok(_) => {
+                            if needs_hoist {
+                                report.roles_hoisted += 1;
+                            }
+                            if needs_icon {
+                                report.icons_applied += 1;
+                            }
+                        }
                         Err(error) => warn!(
                             guild_id = guild_id.get(),
                             rung = rung.name,
                             %error,
-                            "could not hoist an existing ladder role"
+                            "could not bring an existing ladder role in line"
                         ),
                     }
                 }
@@ -905,6 +941,7 @@ mod tests {
             roles_created: 21,
             roles_reused: 0,
             roles_hoisted: 0,
+            icons_applied: 0,
             rewards_created: 21,
             rewards_reused: 0,
             roles_repositioned: 0,

@@ -44,6 +44,45 @@ impl LadderRung {
     pub fn permissions() -> u64 {
         0
     }
+
+    /// The badge artwork for this rung, as a path relative to the dashboard's
+    /// static root.
+    ///
+    /// Derived from the name rather than stored per rung: the badges are one
+    /// generated file per title, `web/public/rank-icons/<slug>.png`, and a name is
+    /// already unique (the reward table indexes `(guild_id, level)` and
+    /// [`is_ladder_name`] matches exactly). A field would be a second place to
+    /// forget when a rung is added.
+    ///
+    /// Discord wants a URL, and the dashboard is the one origin that serves these
+    /// publicly, so the bot and the UI read the same asset. The file name is
+    /// lowercase-hyphenated because that is what the generator writes.
+    pub fn icon_path(&self) -> String {
+        format!("rank-icons/{}.png", slug(self.name))
+    }
+}
+
+/// A role name as a file slug: lowercase, runs of non-alphanumerics collapsed to
+/// one hyphen.
+///
+/// `TITAN`, `SAGE` and the other all-caps rungs must produce the same file as a
+/// mixed-case one would, or adding a capitalised title would silently look for an
+/// asset nobody generated.
+fn slug(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut pending_dash = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if pending_dash && !out.is_empty() {
+                out.push('-');
+            }
+            pending_dash = false;
+            out.extend(ch.to_lowercase());
+        } else {
+            pending_dash = true;
+        }
+    }
+    out
 }
 
 /// The whole ladder, ascending by level.
