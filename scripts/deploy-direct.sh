@@ -214,13 +214,28 @@ fi
 
 # ---------------------------------------------------------------------------
 # Health check. `is-active` proves systemd started something, not that the
-# service works, so the API is probed over HTTP as well. curl's own retry loop is
-# the wait — blocking on a real process rather than polling on a timer.
+# service works, so the API is probed over HTTP as well.
+#
+# The wait has to outlast the STARTUP, not just the process launch, and startup
+# here has two stages that can both be slow:
+#
+#   * `bws-exec` fetches the secret list over HTTPS. On a bad day it retries four
+#     times with backoff (~2+4+6 s) before the gateway binary is even exec'd.
+#   * the gateway then connects to Postgres and binds 8080.
+#
+# Measured on this host, the binary reaches "listening" ~1.9 s after `Started`;
+# the observed worst case was ~7 s once a retry was involved. A 20-second ceiling
+# was therefore *just* inside the noise, and it failed a deploy that was healthy
+# and mid-boot: the run rolled production back to a weeks-old release over a
+# service that was about to come up. The ceiling is now 90 s, and a unit that is
+# still `activating` is treated as *not yet* rather than *broken*.
+#
+# Waiting is `curl --retry`, i.e. blocking on a real process, not a timer loop.
 # ---------------------------------------------------------------------------
 log "waiting for the API to answer"
 api_healthy=0
-if curl -fsS --max-time 3 \
-  --retry 20 --retry-delay 1 --retry-connrefused --retry-all-errors \
+if curl -fsS --max-time 5 \
+  --retry 45 --retry-delay 2 --retry-connrefused --retry-all-errors \
   http://127.0.0.1:8080/api/v1/iam/health >/dev/null 2>&1; then
   api_healthy=1
 fi
@@ -230,7 +245,14 @@ api_state=$(systemctl is-active sudobot-gateway 2>/dev/null || echo inactive)
 log "  sudobot-gateway -> $api_state (http healthy: $api_healthy)"
 log "  sudobot-bot     -> $bot_state"
 
-if [[ "$api_state" != "active" || "$api_healthy" != "1" || "$bot_state" != "active" ]]; then
+# `activating` is not a failure: a unit whose ExecStart is a wrapper that fetches
+# secrets reports `activating` for as long as that fetch runs, and a bot that is
+# still connecting to Discord reports it too. Only `failed`/`inactive` is broken.
+unit_is_up() {
+  [[ "$1" == "active" || "$1" == "activating" ]]
+}
+
+if ! unit_is_up "$api_state" || [[ "$api_healthy" != "1" ]] || ! unit_is_up "$bot_state"; then
   log "a unit is not healthy; recent logs follow"
   journalctl -u sudobot-gateway -u sudobot-bot --no-pager --lines=40 || true
 

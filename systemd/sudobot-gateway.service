@@ -4,6 +4,17 @@ Documentation=https://github.com/IMRNES/sudobot
 After=network-online.target postgresql.service
 Wants=network-online.target
 
+# A crash loop that never stops restarting is harder to notice than one that
+# gives up. Five failures in five minutes means configuration, not a transient.
+#
+# These two belong in [Unit], NOT [Service]. They lived in [Service] and systemd
+# logged "Unknown key 'StartLimitIntervalSec' in section [Service], ignoring" on
+# every reload — so the rate limit stayed at its 10-second default and a broken
+# secret fetch would restart five times in ten seconds, give up, and look exactly
+# like a service that had never been configured to give up at all.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=sudobot
@@ -28,10 +39,6 @@ ExecStart=/usr/local/bin/bws-exec sudobot --project 4a19cf5f-e92b-4373-ad43-b4e5
 
 Restart=always
 RestartSec=5
-# A crash loop that never stops restarting is harder to notice than one that
-# gives up. Five failures in five minutes means configuration, not a transient.
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # The API binds 8080 on every interface; Caddy is the only intended caller but
 # running behind it is what makes a localhost probe meaningful.

@@ -4,6 +4,12 @@ Documentation=https://github.com/IMRNES/sudobot
 After=network-online.target postgresql.service
 Wants=network-online.target
 
+# [Unit], not [Service] — see sudobot-gateway.service for the full note. In
+# [Service] systemd ignores both keys and logs "Unknown key" on every reload, so
+# the rate limit silently stayed at the 10-second default.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=sudobot
@@ -21,8 +27,6 @@ ExecStart=/usr/local/bin/bws-exec sudobot --project 4a19cf5f-e92b-4373-ad43-b4e5
 
 Restart=always
 RestartSec=5
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 Environment=RUST_LOG=info
 
