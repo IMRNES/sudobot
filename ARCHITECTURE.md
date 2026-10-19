@@ -217,6 +217,38 @@ member actually holds: Discord answers a removal of a role the member does not h
 with an error, so proposing it turns a reconcile into a failed API call per member.
 An empty slice means *wears nothing*, not *unknown*, and both halves honour it.
 
+`sync_members` reconciles in both directions, not just upward. A guild switched to
+the replacing configuration has members still wearing every rung they passed, and a
+pass that only granted would leave them that way forever. It revokes before it
+grants, so no member is ever seen wearing two rungs of a ladder that says they wear
+one.
+
+## Positioning the ladder: one request, naming every role
+
+Three rules, each of which was a live bug before it was written down.
+
+**The ladder sits above `leveling_configs.ladder_base_role_id`**, when one is set.
+Discord has no "this is the default member role" flag, so guessing from the name
+breaks on the next server and inferring it from who holds it re-derives the answer on
+every deploy; a stored role id is the only form that is both correct and inspectable.
+`NULL` means the old behaviour, just above `@everyone`.
+
+**Every role is named in the reorder, not just the ladder.** Discord moves a role to
+a position only if that slot ends up free. Naming the twenty-one rungs alone asks for
+a contiguous block while the guild's own roles still hold most of those slots, and
+the rungs that lose the race stay where they were — a live ladder came out at
+2,3,4,6,7,8,… with a guild role wedged between every rung. Sending the complete list
+makes the requested positions a permutation of every slot. serenity's
+`edit_role_position` cannot express this: it builds a one-element array, so calling it
+per rung is a sequence of single-role moves, each displacing the last. The ordering
+lives in `position_plan` because it is pure and can be tested without a guild.
+
+**The bot's own role is raised before the ladder is positioned.** Discord refuses to
+reorder a role to at or above the bot's highest role, so on a guild where the bot
+starts below the ladder every positioning call is rejected. Provisioning does
+`ensure_bot_role_is_above_ladder` first and `position_ladder` second, and the latter
+reads its result back rather than trusting the request count.
+
 ## Deployment: build in CI, ship binaries
 
 The compile happens in GitHub Actions; only four executables and a static dashboard
