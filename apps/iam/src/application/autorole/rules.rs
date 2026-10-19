@@ -155,14 +155,24 @@ impl<A: AutoRoleRepository> DeleteAutoRoleUseCase<A> {
 
     /// Read first so deleting something that is already gone is a 404 rather than
     /// a silent success.
-    pub async fn execute(&self, id: Uuid) -> Result<(), AutoRoleError> {
-        if self.auto_roles.find_by_id(id).await?.is_none() {
+    ///
+    /// `guild_id` scopes the delete. The handler authorizes against the guild in
+    /// the path, so without this check a caller holding `autorole:write` in guild A
+    /// could delete a rule belonging to guild B by naming B's id under A's path.
+    pub async fn execute(&self, guild_id: u64, id: Uuid) -> Result<(), AutoRoleError> {
+        let existing = self
+            .auto_roles
+            .find_by_id(id)
+            .await?
+            .ok_or(AutoRoleError::NotFound(id))?;
+
+        if existing.guild_id != guild_id {
             return Err(AutoRoleError::NotFound(id));
         }
 
         self.auto_roles.delete(id).await?;
 
-        info!(auto_role_id = %id, "auto role deleted");
+        info!(guild_id, auto_role_id = %id, "auto role deleted");
         Ok(())
     }
 }

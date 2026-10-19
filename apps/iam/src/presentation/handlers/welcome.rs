@@ -124,17 +124,31 @@ pub async fn list_panels(
 }
 
 /// One panel, with its buttons.
-#[instrument(skip_all, fields(actor = %actor.id, guild = %guild_id, slug = %slug))]
+///
+/// Addressed by **id**, because that is what `/{panel_id}` carries for every other
+/// method on the same path — PATCH, the option routes and publish all parse a UUID.
+/// Reading the segment as a slug here made `GET` the one verb that 404'd on a panel
+/// the other four could address.
+#[instrument(skip_all, fields(actor = %actor.id, guild = %guild_id, panel = %panel_id))]
 pub async fn get_panel(
     State(state): State<AppState>,
     actor: AuthenticatedUser,
-    Path((guild_id, slug)): Path<(String, String)>,
+    Path((guild_id, panel_id)): Path<(String, String)>,
 ) -> Result<Json<PanelResponse>, AppError> {
     let guild_id = guild_id_from_path(&guild_id)?;
     authorize(&state, actor.id, guild_id, "autorole:read").await?;
 
+    let panel_id = parse_uuid(&panel_id, "panelId")?;
+
     let use_case = GetRolePanelUseCase::new(state.welcome.clone());
-    let panel = use_case.execute(guild_id, &slug).await?;
+    let panel = use_case.execute_by_id(panel_id).await?;
+
+    // `execute_by_id` cannot scope by guild on its own, so the check is explicit:
+    // without it a panel id belonging to another guild would be readable through any
+    // guild the caller does hold `autorole:read` in.
+    if panel.panel.guild_id != guild_id {
+        return Err(AppError::NotFound("role panel not found".into()));
+    }
 
     Ok(Json(panel.into()))
 }
@@ -253,7 +267,7 @@ pub async fn delete_option(
     authorize(&state, actor.id, guild_id, "autorole:write").await?;
 
     let use_case = DeletePanelOptionUseCase::new(state.welcome.clone());
-    use_case.execute(panel_id, option_id).await?;
+    use_case.execute(guild_id, panel_id, option_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

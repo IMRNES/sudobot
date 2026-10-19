@@ -237,7 +237,23 @@ impl<W: WelcomeRepository> DeletePanelOptionUseCase<W> {
 
     /// The panel id is part of the signature so the option cannot be deleted
     /// through the wrong panel's path; the two ids must agree.
-    pub async fn execute(&self, panel_id: Uuid, option_id: Uuid) -> Result<(), WelcomeError> {
+    ///
+    /// `guild_id` scopes the whole operation. The handler authorizes against the
+    /// guild in the path, so without this check a caller holding `autorole:write`
+    /// in guild A could delete a button belonging to guild B by naming B's panel and
+    /// option ids under A's path.
+    pub async fn execute(
+        &self,
+        guild_id: u64,
+        panel_id: Uuid,
+        option_id: Uuid,
+    ) -> Result<(), WelcomeError> {
+        self.welcome
+            .find_panel_by_id(panel_id)
+            .await?
+            .filter(|panel| panel.panel.guild_id == guild_id)
+            .ok_or(WelcomeError::PanelNotFound)?;
+
         let options = self.welcome.list_options(panel_id).await?;
         let option = options
             .into_iter()
@@ -247,6 +263,7 @@ impl<W: WelcomeRepository> DeletePanelOptionUseCase<W> {
         self.welcome.delete_option(option.id).await?;
 
         info!(
+            guild_id,
             panel_id = %panel_id,
             option_id = %option.id,
             "panel option deleted"

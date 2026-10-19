@@ -177,7 +177,7 @@ pub async fn delete_reward(
     authorize(&state, actor.id, guild_id, "leveling:write").await?;
 
     let use_case = DeleteLevelRewardUseCase::new(state.leveling.clone());
-    use_case.execute(reward_id).await?;
+    use_case.execute(guild_id, reward_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

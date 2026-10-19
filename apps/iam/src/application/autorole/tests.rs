@@ -309,9 +309,39 @@ async fn deleting_a_rule_that_is_already_gone_is_not_found() {
     let use_case = DeleteAutoRoleUseCase::new(FakeAutoRoles::new(store));
 
     let error = use_case
-        .execute(uuid::Uuid::new_v4())
+        .execute(1, uuid::Uuid::new_v4())
         .await
         .expect_err("a missing rule is a 404, not a silent success");
 
     assert!(matches!(error, AutoRoleError::NotFound(_)));
+}
+
+/// A rule is only reachable through the guild that owns it. The handler authorizes
+/// against the guild in the path, so a delete that ignored the guild would let
+/// `autorole:write` in one server remove another server's rule by id.
+#[tokio::test]
+async fn a_rule_in_another_guild_cannot_be_deleted() {
+    let store = store();
+    let created = CreateAutoRoleUseCase::new(FakeAutoRoles::new(store.clone()))
+        .execute(CreateAutoRoleCommand {
+            guild_id: 1,
+            role_id: 42,
+            trigger: "join".to_string(),
+            delay_seconds: 0,
+            applies_to_bots: false,
+        })
+        .await
+        .expect("the rule is created");
+
+    let error = DeleteAutoRoleUseCase::new(FakeAutoRoles::new(store.clone()))
+        .execute(2, created.id)
+        .await
+        .expect_err("guild 2 does not own this rule");
+
+    assert!(matches!(error, AutoRoleError::NotFound(_)));
+    assert_eq!(
+        store.lock().expect("not poisoned").rules.len(),
+        1,
+        "the rule must still exist in its own guild"
+    );
 }

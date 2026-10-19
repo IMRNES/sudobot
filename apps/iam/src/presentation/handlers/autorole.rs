@@ -96,7 +96,7 @@ pub async fn delete(
     authorize(&state, actor.id, guild_id, "autorole:write").await?;
 
     let use_case = DeleteAutoRoleUseCase::new(state.auto_roles.clone());
-    use_case.execute(rule_id).await?;
+    use_case.execute(guild_id, rule_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

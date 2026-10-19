@@ -116,13 +116,27 @@ impl<L: LevelingRepository> DeleteLevelRewardUseCase<L> {
     /// it: that role is now theirs, and silently stripping it from everyone who
     /// passed level 5 would be a purge nobody asked for. The caller decides whether
     /// to reconcile, which is why this returns nothing.
-    pub async fn execute(&self, id: Uuid) -> Result<(), LevelingError> {
+    ///
+    /// `guild_id` scopes the delete. The handler authorizes against the guild in the
+    /// path, so without it a caller holding `leveling:write` in guild A could delete
+    /// a reward belonging to guild B by naming B's id under A's path.
+    pub async fn execute(&self, guild_id: u64, id: Uuid) -> Result<(), LevelingError> {
+        let rewards = self
+            .leveling
+            .list_rewards(guild_id)
+            .await
+            .map_err(|error| map_reward_error(id, error))?;
+
+        if !rewards.iter().any(|reward| reward.id == id) {
+            return Err(LevelingError::RewardNotFound(id));
+        }
+
         self.leveling
             .delete_reward(id)
             .await
             .map_err(|error| map_reward_error(id, error))?;
 
-        info!(reward_id = %id, "level reward deleted");
+        info!(guild_id, reward_id = %id, "level reward deleted");
         Ok(())
     }
 }
@@ -264,7 +278,7 @@ mod tests {
         let reward = leveling.seed_reward(5, 555, true);
 
         DeleteLevelRewardUseCase::new(leveling.clone())
-            .execute(reward)
+            .execute(7, reward)
             .await
             .expect("the reward exists");
 
@@ -277,10 +291,31 @@ mod tests {
         let missing = Uuid::new_v4();
 
         let error = DeleteLevelRewardUseCase::new(leveling.clone())
-            .execute(missing)
+            .execute(7, missing)
             .await
             .expect_err("there is no such reward");
 
         assert!(matches!(error, LevelingError::RewardNotFound(id) if id == missing));
+    }
+
+    /// A reward is only reachable through the guild that owns it: the handler
+    /// authorizes against the guild in the path, so ignoring the guild here would
+    /// let `leveling:write` in one server delete another server's ladder rung.
+    #[tokio::test]
+    async fn a_reward_in_another_guild_cannot_be_deleted() {
+        let leveling = FakeLevelingRepository::new();
+        let reward = leveling.seed_reward(5, 555, true);
+
+        let error = DeleteLevelRewardUseCase::new(leveling.clone())
+            .execute(8, reward)
+            .await
+            .expect_err("guild 8 does not own this reward");
+
+        assert!(matches!(error, LevelingError::RewardNotFound(id) if id == reward));
+        assert_eq!(
+            leveling.rewards(7).len(),
+            1,
+            "the reward must still exist in its own guild"
+        );
     }
 }

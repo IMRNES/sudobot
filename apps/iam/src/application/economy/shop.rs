@@ -280,7 +280,11 @@ impl<E: EconomyRepository> DeleteShopItemUseCase<E> {
     /// for an economy anyway: purchases reference the item, so removing the row
     /// would either dangle or cascade the history away. Retiring it keeps the
     /// ledger's explanation of where the currency went.
-    pub async fn execute(&self, id: Uuid) -> Result<(), EconomyError> {
+    ///
+    /// `guild_id` scopes the operation. The handler authorizes against the guild in
+    /// the path, so without this check a caller holding `economy:write` in guild A
+    /// could retire an item belonging to guild B by naming B's id under A's path.
+    pub async fn execute(&self, guild_id: u64, id: Uuid) -> Result<(), EconomyError> {
         // Read first so "there is no such item" is told apart from "the update
         // matched nothing", which the update alone cannot distinguish.
         let existing = self
@@ -289,6 +293,10 @@ impl<E: EconomyRepository> DeleteShopItemUseCase<E> {
             .await
             .map_err(|error| map_item_error(id, error))?
             .ok_or(EconomyError::ItemNotFound(id))?;
+
+        if existing.guild_id != guild_id {
+            return Err(EconomyError::ItemNotFound(id));
+        }
 
         self.economy
             .update_item(id, None, None, None, Some(false), None)
@@ -901,7 +909,7 @@ mod tests {
         let item_id = economy.seed_item("vip", 500, Some(2), true);
 
         DeleteShopItemUseCase::new(economy.clone())
-            .execute(item_id)
+            .execute(7, item_id)
             .await
             .expect("the item exists");
 
@@ -915,11 +923,34 @@ mod tests {
         let missing = Uuid::new_v4();
 
         let error = DeleteShopItemUseCase::new(economy.clone())
-            .execute(missing)
+            .execute(7, missing)
             .await
             .expect_err("there is no such item");
 
         assert!(matches!(error, EconomyError::ItemNotFound(id) if id == missing));
+    }
+
+    /// An item is only reachable through the guild that owns it: the handler
+    /// authorizes against the guild in the path, so ignoring the guild here would
+    /// let `economy:write` in one server retire another server's listing.
+    #[tokio::test]
+    async fn an_item_in_another_guild_cannot_be_retired() {
+        let economy = FakeEconomyRepository::new();
+        let item_id = economy.seed_item("vip", 500, None, true);
+
+        let error = DeleteShopItemUseCase::new(economy.clone())
+            .execute(8, item_id)
+            .await
+            .expect_err("guild 8 does not own this item");
+
+        assert!(matches!(error, EconomyError::ItemNotFound(id) if id == item_id));
+        assert!(
+            economy
+                .item(item_id)
+                .expect("the row is still there")
+                .is_active,
+            "the foreign item must stay on sale"
+        );
     }
 
     #[tokio::test]

@@ -201,7 +201,7 @@ pub async fn delete_item(
     authorize(&state, actor.id, guild_id, "economy:write").await?;
 
     let use_case = DeleteShopItemUseCase::new(state.economy.clone());
-    use_case.execute(item_id).await?;
+    use_case.execute(guild_id, item_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

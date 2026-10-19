@@ -240,6 +240,13 @@ export function readListMeta<TItem>(
  * List request. Returns `{ data, meta }` exactly as documented, with `meta`
  * repaired from the `X-*` headers when the body omits it.
  *
+ * Accepts **either** shape the API legitimately returns. Paginated routes send
+ * `{ data, meta }`; the unpaginated ones (roles, permissions, a guild's rewards,
+ * shop items, panels, autoroles, the economy leaderboard) send a bare array,
+ * because there is nothing to paginate. Reading only `body.data` made every one of
+ * those render as an empty list — data was present and the UI said "none
+ * configured", which is the single most misleading failure a list can have.
+ *
  * Any `query` passed in `options` is merged over the pagination params, which
  * is how routes with a non-paginated knob (the leaderboards' `?limit=`) stay on
  * the same code path as the paginated ones.
@@ -254,7 +261,23 @@ async function requestList<TItem>(
 		...rest,
 		query: { ...listQuery(params), ...query },
 	})
-	const list = (body ?? { data: [] }) as TListResponse<TItem>
+
+	// A bare array is a complete answer, not a truncated envelope: synthesise the
+	// meta from it so callers get one shape.
+	const list: TListResponse<TItem> = Array.isArray(body)
+		? {
+				data: body as TItem[],
+				meta: {
+					page: 1,
+					per_page: body.length,
+					total: body.length,
+					total_pages: 1,
+					has_next: false,
+					has_prev: false,
+				},
+			}
+		: ((body ?? { data: [] }) as TListResponse<TItem>)
+
 	return { data: list.data ?? [], meta: readListMeta(list, response) }
 }
 
