@@ -88,6 +88,24 @@ function AuthCallbackPage() {
 					user: result.user,
 					guilds: result.guilds,
 				})
+
+				// Import the caller's guilds. `result.guilds` is always empty — the
+				// callback does not list them — so without this call the dashboard
+				// renders a signed-in session with no servers, which looks like an
+				// account with no permissions rather than an unfinished sign-in.
+				//
+				// It is allowed to fail without failing the sign-in: the session is
+				// already valid, and `use-me` refetches `/me` on the dashboard.
+				try {
+					const me = await authApi.syncGuilds({
+						discord_access_token: result.discord_access_token,
+					})
+					queryClient.setQueryData(queryKeys.session.me(), me)
+				} catch {
+					// A stale token or a Discord hiccup: sign-in stands, the guild
+					// list is retried when the dashboard loads.
+				}
+
 				const destination = consumeRedirect()
 				await navigate({ to: destination ?? "/dashboard", replace: true })
 			} catch (caught) {

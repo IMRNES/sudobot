@@ -96,7 +96,19 @@ export interface IAuthTokens {
 
 export interface ICallbackResponse extends IAuthTokens {
 	user: IUser
+	/**
+	 * Always empty. The callback deliberately does not list guilds — a Discord
+	 * hiccup while doing so must not fail a sign-in that already succeeded. The
+	 * guilds arrive from `sync-guilds`, which the callback calls next using
+	 * `discord_access_token`.
+	 */
 	guilds: IGuildSummary[]
+	/** Short-lived Discord token, used once to import the caller's guilds. */
+	discord_access_token: string
+}
+
+export interface ISyncGuildsRequest {
+	discord_access_token: string
 }
 
 export interface IMeResponse {
