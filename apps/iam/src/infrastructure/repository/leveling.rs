@@ -13,7 +13,9 @@ use crate::domain::leveling::{
     LevelCurve, LevelProfile, LevelReward, LevelingConfig, LevelingRepository,
 };
 
-use super::entities::{leveling_configs, leveling_profiles, leveling_rewards};
+use super::entities::{
+    guild_member_profiles, leveling_configs, leveling_profiles, leveling_rewards,
+};
 use super::error::{map_db_err, not_found};
 use super::mapping::{from_utc, snowflake, snowflake_from_db, to_utc};
 use super::pagination::paginate_models;
@@ -22,6 +24,8 @@ const CONFIG: &str = "leveling config";
 const PROFILE: &str = "leveling profile";
 const REWARD: &str = "level reward";
 const PROFILE_CONFLICT: &str = "that member already has a leveling profile in this guild";
+const MEMBER: &str = "guild member profile";
+const MEMBER_CONFLICT: &str = "that member already has a profile in this guild";
 const REWARD_CONFLICT: &str = "a reward already exists for that level";
 
 /// XP configuration, profiles and reward roles, backed by SeaORM.
@@ -412,6 +416,80 @@ impl LevelingRepository for SeaOrmLevelingRepository {
             .map_err(|error| map_db_err(PROFILE, PROFILE_CONFLICT, error))?;
 
         Ok(models.into_iter().map(LevelProfile::from).collect())
+    }
+
+    async fn record_member_name(
+        &self,
+        guild_id: u64,
+        discord_user_id: u64,
+        display_name: &str,
+        is_bot: bool,
+    ) -> Result<(), RepositoryError> {
+        let now = from_utc(Utc::now());
+
+        // `ON CONFLICT ... DO UPDATE` rather than a read-then-write: the bot sees the
+        // same member on every message, and the cache must not grow a row per sighting.
+        // Only the name and the sighting time move; `joined_at` belongs to the join
+        // event and must not be overwritten by a chat message.
+        guild_member_profiles::Entity::insert(guild_member_profiles::ActiveModel {
+            id: sea_orm::ActiveValue::Set(Uuid::new_v4()),
+            guild_id: sea_orm::ActiveValue::Set(snowflake(guild_id)),
+            discord_user_id: sea_orm::ActiveValue::Set(snowflake(discord_user_id)),
+            display_name: sea_orm::ActiveValue::Set(Some(display_name.to_string())),
+            is_bot: sea_orm::ActiveValue::Set(is_bot),
+            created_at: sea_orm::ActiveValue::Set(now),
+            updated_at: sea_orm::ActiveValue::Set(now),
+            last_seen_at: sea_orm::ActiveValue::Set(Some(now)),
+            joined_at: sea_orm::ActiveValue::NotSet,
+            is_blacklisted: sea_orm::ActiveValue::NotSet,
+        })
+        .on_conflict(
+            OnConflict::columns([
+                guild_member_profiles::Column::GuildId,
+                guild_member_profiles::Column::DiscordUserId,
+            ])
+            .update_columns([
+                guild_member_profiles::Column::DisplayName,
+                guild_member_profiles::Column::IsBot,
+                guild_member_profiles::Column::LastSeenAt,
+                guild_member_profiles::Column::UpdatedAt,
+            ])
+            .to_owned(),
+        )
+        .exec_without_returning(&self.db)
+        .await
+        .map_err(|error| map_db_err(MEMBER, MEMBER_CONFLICT, error))?;
+
+        Ok(())
+    }
+
+    async fn member_names(
+        &self,
+        guild_id: u64,
+        discord_user_ids: &[u64],
+    ) -> Result<std::collections::HashMap<u64, String>, RepositoryError> {
+        if discord_user_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        // One query for the whole page rather than one per row: this runs on the
+        // leaderboard path, where a per-row lookup is the classic N+1.
+        let ids: Vec<i64> = discord_user_ids.iter().copied().map(snowflake).collect();
+
+        let rows = guild_member_profiles::Entity::find()
+            .filter(guild_member_profiles::Column::GuildId.eq(snowflake(guild_id)))
+            .filter(guild_member_profiles::Column::DiscordUserId.is_in(ids))
+            .all(&self.db)
+            .await
+            .map_err(|error| map_db_err(MEMBER, MEMBER_CONFLICT, error))?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                row.display_name
+                    .map(|name| (snowflake_from_db(row.discord_user_id), name))
+            })
+            .collect())
     }
 
     async fn rank_of(&self, guild_id: u64, discord_user_id: u64) -> Result<u64, RepositoryError> {

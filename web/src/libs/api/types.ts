@@ -276,6 +276,8 @@ export type TLevelingConfigUpdateRequest = Partial<ILevelingConfigResponse>
 export interface ILeaderboardEntryResponse {
 	rank: number
 	discord_id: string
+	/** The member's name, or null when the bot has never recorded one. */
+	display_name: string | null
 	level: number
 	xp: number
 	total_xp: number

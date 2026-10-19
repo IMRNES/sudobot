@@ -125,6 +125,9 @@ struct State {
     configs: Vec<LevelingConfig>,
     profiles: Vec<LevelProfile>,
     rewards: Vec<LevelReward>,
+    /// Cached display names, keyed by (guild, member) — the same key the real
+    /// `guild_member_profiles` row uses.
+    names: std::collections::HashMap<(u64, u64), String>,
     calls: Vec<LevelingCall>,
     /// When set, every write fails, so the error paths can be exercised.
     fail_writes: bool,
@@ -509,6 +512,37 @@ impl LevelingRepository for FakeLevelingRepository {
         });
 
         Ok(matching)
+    }
+
+    async fn record_member_name(
+        &self,
+        guild_id: u64,
+        discord_user_id: u64,
+        display_name: &str,
+        _is_bot: bool,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self.state();
+        state
+            .names
+            .insert((guild_id, discord_user_id), display_name.to_string());
+        Ok(())
+    }
+
+    async fn member_names(
+        &self,
+        guild_id: u64,
+        discord_user_ids: &[u64],
+    ) -> Result<std::collections::HashMap<u64, String>, RepositoryError> {
+        let state = self.state();
+        Ok(discord_user_ids
+            .iter()
+            .filter_map(|id| {
+                state
+                    .names
+                    .get(&(guild_id, *id))
+                    .map(|name| (*id, name.clone()))
+            })
+            .collect())
     }
 
     async fn rank_of(&self, guild_id: u64, discord_user_id: u64) -> Result<u64, RepositoryError> {

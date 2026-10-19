@@ -14,6 +14,12 @@ pub struct LeaderboardRow {
     /// The member's position in the whole guild, not in the page.
     pub rank: u64,
     pub discord_user_id: u64,
+    /// The member's name, when the bot has cached one.
+    ///
+    /// `None` is honest rather than a placeholder: a member who has never spoken
+    /// since the cache existed has no name recorded, and the dashboard falls back
+    /// to the id. Inventing a name here would be worse than showing none.
+    pub display_name: Option<String>,
     pub level: i32,
     pub xp: i64,
     pub total_xp: i64,
@@ -54,12 +60,20 @@ impl<L: LevelingRepository> LevelLeaderboardUseCase<L> {
         let curve = config.curve;
         let offset = params.offset();
 
-        let rows: Vec<LeaderboardRow> = page
+        let mut rows: Vec<LeaderboardRow> = page
             .data
             .iter()
             .enumerate()
             .map(|(index, profile)| row_for(profile, offset + index as u64 + 1, curve))
             .collect();
+
+        // One lookup for the whole page. A member with no cached name keeps `None`
+        // and the dashboard shows their id, which is the honest answer.
+        let ids: Vec<u64> = rows.iter().map(|row| row.discord_user_id).collect();
+        let names = self.leveling.member_names(guild_id, &ids).await?;
+        for row in &mut rows {
+            row.display_name = names.get(&row.discord_user_id).cloned();
+        }
 
         debug!(
             guild_id,
@@ -96,6 +110,7 @@ fn row_for(
     LeaderboardRow {
         rank,
         discord_user_id: profile.discord_user_id,
+        display_name: None,
         level: profile.level,
         xp: profile.xp,
         total_xp: profile.total_xp,
@@ -240,6 +255,40 @@ mod tests {
         assert_eq!(row.level, 12);
         assert_eq!(row.xp, 340);
         assert_eq!(row.message_count, 900);
+    }
+
+    /// The leaderboard must show the name the bot recorded, so the dashboard has
+    /// something real to print next to a member.
+    #[tokio::test]
+    async fn a_row_carries_the_recorded_name() {
+        let leveling = FakeLevelingRepository::new();
+        leveling.seed_profile(1, 500, 0, 0);
+        leveling
+            .record_member_name(7, 1, "asepharyana", false)
+            .await
+            .expect("a name on record");
+
+        let page = LevelLeaderboardUseCase::new(leveling.clone())
+            .execute(7, &params(1, 10))
+            .await
+            .expect("one row");
+
+        assert_eq!(page.data[0].display_name.as_deref(), Some("asepharyana"));
+    }
+
+    /// A member nobody has a name for keeps `None`: the caller falls back to the id
+    /// rather than inventing a name the server never gave.
+    #[tokio::test]
+    async fn a_member_with_no_recorded_name_stays_none() {
+        let leveling = FakeLevelingRepository::new();
+        leveling.seed_profile(2, 100, 0, 0);
+
+        let page = LevelLeaderboardUseCase::new(leveling.clone())
+            .execute(7, &params(1, 10))
+            .await
+            .expect("one row");
+
+        assert_eq!(page.data[0].display_name, None);
     }
 
     #[tokio::test]

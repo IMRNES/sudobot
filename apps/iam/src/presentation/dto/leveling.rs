@@ -112,6 +112,8 @@ pub struct LeaderboardRowResponse {
     pub rank: u64,
     #[serde(with = "snowflake")]
     pub discord_id: u64,
+    /// The member's name, or null when the bot has never recorded one.
+    pub display_name: Option<String>,
     pub level: i32,
     pub xp: i64,
     pub total_xp: i64,
@@ -125,6 +127,7 @@ impl From<LeaderboardRow> for LeaderboardRowResponse {
         Self {
             rank: row.rank,
             discord_id: row.discord_user_id,
+            display_name: row.display_name,
             level: row.level,
             xp: row.xp,
             total_xp: row.total_xp,

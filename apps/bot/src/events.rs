@@ -109,6 +109,22 @@ pub async fn handle(
     Ok(())
 }
 
+/// The name to show for a member: guild nickname, then Discord's display name,
+/// then the unique username.
+///
+/// The ordering matches what the member is called in this server — a nickname is
+/// server-specific and outranks the global display name, which in turn outranks the
+/// handle they cannot change. Getting it wrong would put a stale global name on a
+/// leaderboard next to people using nicknames.
+/// `PartialMember` rather than `Member`: a message's payload carries the partial
+/// form, which is enough — it has the nickname, and the rest comes from the author.
+fn display_name_of(author: &serenity::User, nick: Option<&str>) -> String {
+    nick.filter(|nick| !nick.is_empty())
+        .map(str::to_owned)
+        .or_else(|| author.global_name.clone().filter(|name| !name.is_empty()))
+        .unwrap_or_else(|| author.name.clone())
+}
+
 /// Awards message XP.
 ///
 /// The guild, channel and member state the use case needs are all read from the
@@ -137,6 +153,29 @@ async fn handle_message(listener: &Listener<'_>, message: &serenity::Message) {
         // configuration.
         None => Vec::new(),
     };
+
+    // Record who is speaking before awarding, so the dashboard has a real name to
+    // show the moment a member earns their first XP. Without this the leaderboard
+    // has an id and nothing else, and anything it draws next to that id is invented.
+    //
+    // Best effort and not awaited-for-correctness: a failure here must not cost the
+    // member their XP, and the next message retries it.
+    if let Err(error) = listener
+        .data
+        .leveling
+        .record_member_name(
+            guild_id.get(),
+            message.author.id.get(),
+            &display_name_of(
+                &message.author,
+                message.member.as_ref().and_then(|m| m.nick.as_deref()),
+            ),
+            message.author.bot,
+        )
+        .await
+    {
+        debug!(%error, "could not record a member's display name");
+    }
 
     let use_case = GrantMessageXpUseCase::new(listener.data.leveling.clone(), listener.data.clock);
 

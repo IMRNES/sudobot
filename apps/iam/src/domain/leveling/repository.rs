@@ -78,6 +78,29 @@ pub trait LevelingRepository: Send + Sync {
         guild_id: u64,
     ) -> impl Future<Output = Result<Vec<LevelProfile>, RepositoryError>> + Send;
 
+    /// Records the name the bot saw for a member, so a leaderboard can show it.
+    ///
+    /// Kept on this trait because it is the same per-member row the XP grant already
+    /// touches on every message, and keeping the two writes on one port means a
+    /// caller cannot record progress without recording who made it.
+    fn record_member_name(
+        &self,
+        guild_id: u64,
+        discord_user_id: u64,
+        display_name: &str,
+        is_bot: bool,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// The names cached for these members, keyed by discord id.
+    ///
+    /// A member missing from the map has no name on record — deliberately not an
+    /// error, and deliberately not a placeholder.
+    fn member_names(
+        &self,
+        guild_id: u64,
+        discord_user_ids: &[u64],
+    ) -> impl Future<Output = Result<std::collections::HashMap<u64, String>, RepositoryError>> + Send;
+
     /// The member's rank by XP, 1-based.
     fn rank_of(
         &self,

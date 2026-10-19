@@ -57,7 +57,9 @@ export function LevelingLeaderboard({
 								</span>
 								<UserCell
 									discordId={entry.discord_id}
-									name={`User ${shortId(entry.discord_id, 4)}`}
+									// A member with no recorded name keeps the id fallback; showing
+									// a name the server never told us would be a fabrication.
+									name={entry.display_name ?? `User ${shortId(entry.discord_id, 4)}`}
 									secondary={`Level ${entry.level}`}
 									className="flex-1"
 								/>
