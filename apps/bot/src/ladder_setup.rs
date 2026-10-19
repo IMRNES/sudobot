@@ -261,15 +261,17 @@ pub async fn provision(
         }
     }
 
-    // Order the rungs, then lift the bot clear of them. Both are needed before a
-    // single title can be handed out.
-    report.roles_repositioned = position_ladder(data, guild_id, &ordered).await;
-
-    // The positioning step for the bot's own role, and the last thing that can leave
-    // the ladder decorative.
+    // The bot's own role is raised FIRST, and the order matters. Discord refuses a
+    // reorder that would place a role at or above the bot's highest role, and the
+    // ladder's target positions sit just above the base member role — so on a fresh
+    // guild the bot is below them and every positioning call is rejected. Raising the
+    // bot first is what makes the next line able to take effect at all.
     let (raised, ungrantable) = ensure_bot_role_is_above_ladder(data, ctx, guild_id).await?;
     report.bot_role_raised = raised;
     report.highest_ungrantable = ungrantable;
+
+    // Then place the rungs. This is the step that decides the order members see.
+    report.roles_repositioned = position_ladder(data, guild_id, &ordered).await;
 
     Ok(report)
 }
@@ -340,34 +342,85 @@ async fn position_ladder(
         return 0;
     }
 
-    // One request for the whole ladder. `edit_role_position` takes a single
-    // (role, position) pair but sends it as the bulk array, which is what makes it
-    // work; calling it per rung would be twenty-one round trips for the same effect.
-    let mut moved = 0;
-    for (slot, role_id) in ordered.iter().enumerate() {
-        let target = u16::try_from(start + slot).unwrap_or(u16::MAX);
-        if slot_of(&before, role_id) == Some(start + slot) {
-            continue;
-        }
+    // ONE request carrying every rung, which is the only form that works.
+    //
+    // serenity's `edit_role_position` builds a single-element array `[{id, position}]`
+    // server-side. Sending that twenty-one times does not place twenty-one roles: each
+    // call inserts its role at the requested slot and *shifts* whatever is there, so
+    // the ladder comes out interleaved with the guild's other roles rather than as a
+    // contiguous block. The batch endpoint takes the whole `[{id, position}, ...]`
+    // list in one PATCH and assigns the slots as a set, which is what the ordering
+    // actually means.
+    //
+    // Positions are assigned to every rung, not only the misplaced ones, because the
+    // list is interpreted as a whole.
+    // Highest position first. Discord applies the list in order and each entry
+    // inserts-into the slot, so walking upward would push the already-placed roles
+    // along; walking downward fills the block from the top.
+    let payload: Vec<serde_json::Value> = ordered
+        .iter()
+        .enumerate()
+        .rev()
+        .map(|(slot, role_id)| {
+            serde_json::json!({
+                "id": role_id.to_string(),
+                "position": u16::try_from(start + slot).unwrap_or(u16::MAX),
+            })
+        })
+        .collect();
 
-        match http
-            .edit_role_position(guild_id, *role_id, target, Some("sudobot level ladder"))
-            .await
-        {
-            Ok(_) => moved += 1,
-            Err(error) => {
-                // Discord may refuse to reorder a role that sits above the bot's own
-                // highest role, and the refusal is not always an error status. The
-                // read-back below is what decides whether the ladder actually ended
-                // up ordered, so a failure here is reported rather than fatal.
-                warn!(
-                    guild_id = guild_id.get(),
-                    rung_position = target,
-                    %error,
-                    "could not set a ladder role's position"
-                );
-            }
+    let body = match serde_json::to_vec(&payload) {
+        Ok(body) => body,
+        Err(error) => {
+            warn!(%error, guild_id = guild_id.get(), "could not encode the ladder's positions");
+            return 0;
         }
+    };
+
+    let request = serenity::http::Request::new(
+        serenity::http::Route::GuildRoles { guild_id },
+        serenity::http::LightMethod::Patch,
+    )
+    .body(Some(body));
+
+    match http.request(request).await {
+        Ok(_) => {}
+        Err(error) => {
+            warn!(
+                guild_id = guild_id.get(),
+                %error,
+                "could not place the ladder in one request"
+            );
+            return 0;
+        }
+    }
+
+    // Read back rather than reporting the request count. Discord accepts a bulk
+    // reorder and may still leave the ladder interleaved — a role above the bot's own
+    // is skipped element by element — so the number that matters is how many rungs
+    // actually landed, not how many were asked for.
+    let after = match guild_id.roles(&http).await {
+        Ok(roles) => roles,
+        Err(error) => {
+            warn!(%error, guild_id = guild_id.get(), "could not re-read the ladder's positions");
+            return 0;
+        }
+    };
+
+    let moved = ordered
+        .iter()
+        .enumerate()
+        .filter(|(slot, role_id)| slot_of(&after, role_id) == Some(start + *slot))
+        .count();
+
+    if moved != ordered.len() {
+        warn!(
+            guild_id = guild_id.get(),
+            placed = moved,
+            expected = ordered.len(),
+            start,
+            "the ladder is not contiguous; a rung may sit above the bot's own role"
+        );
     }
 
     moved

@@ -553,6 +553,7 @@ dependencies = [
  "iam",
  "poise",
  "sea-orm",
+ "serde_json",
  "serenity",
  "sudobot-config",
  "tokio",
