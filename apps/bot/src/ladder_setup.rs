@@ -83,6 +83,15 @@ impl ProvisionReport {
         if self.bot_role_raised {
             parts.push("my role was raised above the ladder".to_string());
         }
+        if self.roles_hoisted > 0 {
+            parts.push(format!("{} roles hoisted", self.roles_hoisted));
+        }
+        // Reported on its own line because a run that only attached badges
+        // otherwise reads as "nothing to do" — every count above says the rungs
+        // were already present, while the visible change was the badges.
+        if self.icons_applied > 0 {
+            parts.push(format!("{} badges applied", self.icons_applied));
+        }
         if self.roles_repositioned > 0 {
             parts.push(format!("{} roles reordered", self.roles_repositioned));
         }
@@ -954,6 +963,38 @@ mod tests {
         assert!(summary.contains("21 roles created"));
         assert!(summary.contains("my role was raised"));
         assert!(report.is_fully_functional());
+    }
+
+    #[test]
+    fn a_run_that_only_attached_badges_says_so() {
+        // The bug this covers: every rung already existed, so the summary read
+        // "21 roles already present" and nothing else, while the run had in fact
+        // put a badge on each of them. Both `icons_applied` and `roles_hoisted`
+        // are silent when zero, so a real change cannot hide behind a zero.
+        let report = ProvisionReport {
+            roles_reused: 21,
+            icons_applied: 21,
+            rewards_reused: 21,
+            ..ProvisionReport::default()
+        };
+
+        let summary = report.summary();
+        assert!(summary.contains("21 badges applied"), "{summary}");
+        assert!(!summary.contains("0 badges"), "{summary}");
+    }
+
+    #[test]
+    fn a_quiet_run_claims_nothing_it_did_not_do() {
+        let report = ProvisionReport {
+            roles_reused: 21,
+            rewards_reused: 21,
+            ..ProvisionReport::default()
+        };
+
+        let summary = report.summary();
+        assert!(!summary.contains("badges"), "{summary}");
+        assert!(!summary.contains("hoisted"), "{summary}");
+        assert!(!summary.contains("reordered"), "{summary}");
     }
 
     /// The regression this field exists for: a run whose roles were all created but
