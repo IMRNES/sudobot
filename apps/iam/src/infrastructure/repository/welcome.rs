@@ -97,6 +97,15 @@ impl WelcomeRepository for SeaOrmWelcomeRepository {
                         welcome_configs::Column::WelcomeChannelId,
                         welcome_configs::Column::WelcomeMessage,
                         welcome_configs::Column::WelcomeEmbedColor,
+                        // The card columns belong here too: `on_conflict` only
+                        // writes the columns it is given, so a column that is `Set`
+                        // above but absent from this list is silently discarded on
+                        // every update to an existing row.
+                        welcome_configs::Column::EmbedTitle,
+                        welcome_configs::Column::EmbedDescription,
+                        welcome_configs::Column::EmbedAuthor,
+                        welcome_configs::Column::EmbedImageUrl,
+                        welcome_configs::Column::EmbedThumbnailUrl,
                         welcome_configs::Column::WelcomeDmEnabled,
                         welcome_configs::Column::GoodbyeEnabled,
                         welcome_configs::Column::GoodbyeChannelId,

@@ -657,3 +657,86 @@ async fn a_guild_without_a_card_posts_no_embed() {
         "no card configured means no embed, not an empty one"
     );
 }
+
+/// Saving the card to a guild that already has a config row must store it.
+///
+/// The upsert's `on_conflict` list is what decides which columns are written on an
+/// existing row, so a column added to the `ActiveModel` but not to that list is
+/// discarded without an error — the endpoint answers 200 and the value never lands.
+#[tokio::test]
+async fn the_card_is_stored_when_the_row_already_exists() {
+    let store = store();
+    seed_config(&store, enabled_config());
+
+    let stored = UpdateWelcomeConfigUseCase::new(FakeWelcome::new(store))
+        .execute(UpdateWelcomeConfigCommand {
+            guild_id: GUILD,
+            welcome_enabled: None,
+            welcome_channel_id: None,
+            welcome_message: None,
+            welcome_embed_color: None,
+            welcome_dm_enabled: None,
+            embed_title: Some(Some("IMRNES Community".to_string())),
+            embed_description: Some(Some("A place for {guild}".to_string())),
+            embed_author: Some(Some("imrnes.team".to_string())),
+            embed_image_url: Some(Some("https://example.test/card.jpg".to_string())),
+            embed_thumbnail_url: Some(Some("https://example.test/logo.png".to_string())),
+            goodbye_enabled: None,
+            goodbye_channel_id: None,
+            goodbye_message: None,
+            goodbye_embed_color: None,
+        })
+        .await
+        .expect("the patch applies");
+
+    assert_eq!(stored.embed_title.as_deref(), Some("IMRNES Community"));
+    assert_eq!(stored.embed_author.as_deref(), Some("imrnes.team"));
+    assert_eq!(
+        stored.embed_image_url.as_deref(),
+        Some("https://example.test/card.jpg")
+    );
+    assert_eq!(
+        stored.embed_thumbnail_url.as_deref(),
+        Some("https://example.test/logo.png")
+    );
+}
+
+/// A null on the card fields clears them, which is how an admin removes a card
+/// they no longer want.
+#[tokio::test]
+async fn a_null_clears_a_card_field() {
+    let store = store();
+    seed_config(
+        &store,
+        WelcomeConfig {
+            embed_title: Some("Old title".to_string()),
+            ..enabled_config()
+        },
+    );
+
+    let stored = UpdateWelcomeConfigUseCase::new(FakeWelcome::new(store))
+        .execute(UpdateWelcomeConfigCommand {
+            guild_id: GUILD,
+            welcome_enabled: None,
+            welcome_channel_id: None,
+            welcome_message: None,
+            welcome_embed_color: None,
+            welcome_dm_enabled: None,
+            embed_title: Some(None),
+            embed_description: None,
+            embed_author: None,
+            embed_image_url: None,
+            embed_thumbnail_url: None,
+            goodbye_enabled: None,
+            goodbye_channel_id: None,
+            goodbye_message: None,
+            goodbye_embed_color: None,
+        })
+        .await
+        .expect("the patch applies");
+
+    assert_eq!(
+        stored.embed_title, None,
+        "an explicit null clears the field"
+    );
+}
