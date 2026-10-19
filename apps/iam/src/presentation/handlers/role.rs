@@ -5,7 +5,7 @@ use tracing::instrument;
 
 use crate::application::rbac::{
     CreateGuildRoleCommand, CreateGuildRoleUseCase, DeleteGuildRoleUseCase, GetGuildRoleUseCase,
-    ListGuildRolesUseCase, ListPermissionsUseCase, ReplaceRolePermissionsCommand,
+    ListGuildRolesUseCase, ListPermissionsUseCase, MemberRoleCounts, ReplaceRolePermissionsCommand,
     ReplaceRolePermissionsUseCase, RoleView, UpdateGuildRoleCommand, UpdateGuildRoleUseCase,
 };
 use crate::presentation::dto::role::{
@@ -45,7 +45,14 @@ pub async fn list_roles(
     let guild_id = guild_id_from_path(&guild_id)?;
     authorize(&state, actor.id, guild_id, "roles:read").await?;
 
-    let use_case = ListGuildRolesUseCase::new(state.guild_roles.clone());
+    // The list must carry real member counts: the roles screen shows them, and a
+    // silently-zero counter reads as "nobody holds this role" on a role that is
+    // in use. `MemberRoleCounts` is the exact counter; `ListGuildRolesUseCase::new`
+    // would substitute the zero placeholder.
+    let use_case = ListGuildRolesUseCase::with_counts(
+        state.guild_roles.clone(),
+        MemberRoleCounts::new(state.guild_members.clone()),
+    );
     let roles = use_case.execute(guild_id).await?;
 
     Ok(Json(roles.into_iter().map(role_response).collect()))

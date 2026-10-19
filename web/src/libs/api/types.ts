@@ -256,7 +256,7 @@ export type TShopItemUpdateRequest = Partial<IShopItemCreateRequest> & {
 /* Leveling                                                                    */
 /* -------------------------------------------------------------------------- */
 
-export type TLevelingCurve = "mrn" | "linear" | "quadratic" | "exponential" | (string & {})
+export type TLevelingCurve = "mrn" | "linear" | "flat" | (string & {})
 
 export interface ILevelingConfigResponse {
 	enabled: boolean

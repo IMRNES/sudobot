@@ -216,6 +216,9 @@ impl<E: EconomyRepository> CreateShopItemUseCase<E> {
 /// "make it unlimited".
 #[derive(Debug, Clone)]
 pub struct UpdateShopItemCommand {
+    /// The guild in the route. Carried so an item belonging to another guild
+    /// cannot be edited by quoting its id — the same hole the delete path closed.
+    pub guild_id: u64,
     pub id: Uuid,
     pub name: Option<String>,
     pub description: Option<String>,
@@ -239,10 +242,19 @@ impl<E: EconomyRepository> UpdateShopItemUseCase<E> {
         // would pay the buyer instead of charging them.
         let price = command.price.map(validate_price).transpose()?;
 
+        // Scoped read first: an id alone is not a tenant boundary.
+        let existing = self
+            .economy
+            .find_item_by_id(command.id)
+            .await
+            .map_err(|error| map_item_error(command.id, error))?
+            .filter(|item| item.guild_id == command.guild_id)
+            .ok_or(EconomyError::ItemNotFound(command.id))?;
+
         let item = self
             .economy
             .update_item(
-                command.id,
+                existing.id,
                 command.name,
                 command.description,
                 price,
@@ -844,6 +856,7 @@ mod tests {
 
         let updated = UpdateShopItemUseCase::new(economy.clone())
             .execute(UpdateShopItemCommand {
+                guild_id: 7,
                 id: item_id,
                 name: Some("VIP+".to_string()),
                 description: None,
@@ -870,6 +883,7 @@ mod tests {
 
         let error = UpdateShopItemUseCase::new(economy.clone())
             .execute(UpdateShopItemCommand {
+                guild_id: 7,
                 id: missing,
                 name: Some("ghost".to_string()),
                 description: None,
@@ -890,6 +904,7 @@ mod tests {
 
         let error = UpdateShopItemUseCase::new(economy.clone())
             .execute(UpdateShopItemCommand {
+                guild_id: 7,
                 id: item_id,
                 name: None,
                 description: None,
@@ -951,6 +966,35 @@ mod tests {
                 .expect("the row is still there")
                 .is_active,
             "the foreign item must stay on sale"
+        );
+    }
+
+    /// The same tenant boundary applies to an edit: `UpdateShopItemUseCase`
+    /// authorizes against the guild in the path, so ignoring the guild would let
+    /// `economy:write` in one server reprice another server's listing.
+    #[tokio::test]
+    async fn an_item_in_another_guild_cannot_be_edited() {
+        let economy = FakeEconomyRepository::new();
+        let item_id = economy.seed_item("vip", 500, None, true);
+
+        let error = UpdateShopItemUseCase::new(economy.clone())
+            .execute(UpdateShopItemCommand {
+                guild_id: 8,
+                id: item_id,
+                name: None,
+                description: None,
+                price: Some(1),
+                is_active: None,
+                stock: None,
+            })
+            .await
+            .expect_err("guild 8 does not own this item");
+
+        assert!(matches!(error, EconomyError::ItemNotFound(id) if id == item_id));
+        assert_eq!(
+            economy.item(item_id).map(|item| item.price),
+            Some(500),
+            "the foreign item must keep its price"
         );
     }
 

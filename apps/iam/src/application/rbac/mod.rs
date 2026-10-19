@@ -19,5 +19,6 @@ pub use matrix::{ReplaceRolePermissionsCommand, ReplaceRolePermissionsUseCase};
 pub use permissions::ListPermissionsUseCase;
 pub use roles::{
     CreateGuildRoleCommand, CreateGuildRoleUseCase, DeleteGuildRoleUseCase, GetGuildRoleUseCase,
-    ListGuildRolesUseCase, RoleView, UpdateGuildRoleCommand, UpdateGuildRoleUseCase,
+    ListGuildRolesUseCase, MemberRoleCounts, RoleMemberCounts, RoleView, UpdateGuildRoleCommand,
+    UpdateGuildRoleUseCase,
 };

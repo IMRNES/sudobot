@@ -38,9 +38,12 @@ import { guildQueries } from "#/routes/_authenticated/$guildSlug/_data/queries.t
  * state the last request happened to carry. So edits are local, dirty state is
  * tracked per role, and nothing reaches the server until Save is pressed.
  *
- * `is_system` roles are shown but their checkboxes are locked: the API marks
- * them as built-in, and letting an admin empty out "Admin" would be a
- * foot-gun with no undo.
+ * `is_system` roles are editable like any other. The server decides what is
+ * actually immutable — a system role's slug and its deletion are refused by the
+ * use cases, and any edit that would strip `dashboard:manage` from the last role
+ * holding it is refused by `ensure_guild_stays_administrable`. Locking the grid
+ * on `is_system` would take the guard's job and, because `bootstrap` seeds only
+ * system roles, leave the matrix permanently read-only.
  */
 
 export function PermissionMatrix({
@@ -199,17 +202,12 @@ function MatrixGrid({
 						</td>
 						{roles.map((role) => {
 							const dirty = isDirty(role, draft[role.id])
-							const locked = !canWrite || role.is_system
 							return (
 								<td key={role.id} className="px-3 py-2.5 text-center">
 									<div className="flex items-center justify-center gap-1">
 										<PermissionButton
-											allowed={canWrite && !role.is_system}
-											reason={
-												role.is_system
-													? "System roles are managed by the server and cannot be edited."
-													: deniedReason
-											}
+											allowed={canWrite}
+											reason={deniedReason}
 											size="xs"
 											disabled={!dirty || save.isPending}
 											onClick={() =>
@@ -222,7 +220,7 @@ function MatrixGrid({
 											<Save />
 											Save
 										</PermissionButton>
-										{dirty && !locked ? (
+										{dirty && canWrite ? (
 											<Button
 												variant="ghost"
 												size="icon-xs"
@@ -286,22 +284,15 @@ function PermissionGroup({
 					</th>
 					{roles.map((role) => {
 						const checked = draft[role.id]?.has(permission.name) ?? false
-						const locked = !canWrite || role.is_system
 						return (
 							<td key={role.id} className="px-3 py-2 text-center">
 								<span
-									className={cn("inline-flex", locked && "cursor-not-allowed opacity-60")}
-									title={
-										role.is_system
-											? "System roles are managed by the server and cannot be edited."
-											: canWrite
-												? undefined
-												: deniedReason
-									}
+									className={cn("inline-flex", !canWrite && "cursor-not-allowed opacity-60")}
+									title={canWrite ? undefined : deniedReason}
 								>
 									<Checkbox
 										checked={checked}
-										disabled={locked}
+										disabled={!canWrite}
 										onCheckedChange={() => onToggle(role.id, permission.name)}
 										aria-label={`${permission.name} for ${role.name}`}
 									/>

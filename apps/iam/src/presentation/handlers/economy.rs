@@ -191,6 +191,7 @@ pub async fn update_item(
     let use_case = UpdateShopItemUseCase::new(state.economy.clone());
     let item = use_case
         .execute(UpdateShopItemCommand {
+            guild_id,
             id: item_id,
             name: request.name,
             description: request.description,

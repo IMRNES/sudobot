@@ -33,7 +33,7 @@ import { guildQueries } from "#/routes/_authenticated/$guildSlug/_data/queries.t
  * mutations against the same key.
  */
 
-const CURVES = ["mrn", "linear", "quadratic", "exponential"] as const
+const CURVES = ["mrn", "linear", "flat"] as const
 
 export function LevelingConfigForm({
 	guildId,
@@ -111,6 +111,7 @@ function ConfigForm({
 			cooldown_secs: String(config.cooldown_secs),
 			voice_xp_multiplier: String(config.voice_xp_multiplier),
 			curve: config.curve,
+			announce_channel_id: config.announce_channel_id ?? "",
 		},
 		onSubmit: ({ value }) => {
 			save.mutate({
@@ -119,6 +120,10 @@ function ConfigForm({
 				cooldown_secs: Number.parseInt(value.cooldown_secs, 10),
 				voice_xp_multiplier: Number.parseFloat(value.voice_xp_multiplier),
 				curve: value.curve,
+				// Empty means "no announcement" — sent as an explicit null so the
+				// server clears it. A non-empty value is a snowflake string.
+				announce_channel_id:
+					value.announce_channel_id.trim().length === 0 ? null : value.announce_channel_id.trim(),
 			})
 		},
 	})
@@ -274,6 +279,38 @@ function ConfigForm({
 									onBlur={field.handleBlur}
 									onChange={(event) => field.handleChange(event.target.value)}
 									className="tabular-nums"
+								/>
+							</FormField>
+						)}
+					</form.Field>
+
+					<form.Field
+						name="announce_channel_id"
+						validators={{
+							onChange: ({ value }) => {
+								const trimmed = value.trim()
+								if (trimmed.length === 0) return undefined
+								return /^\d{5,25}$/.test(trimmed)
+									? undefined
+									: "A Discord channel id — digits only."
+							},
+						}}
+					>
+						{(field) => (
+							<FormField
+								label="Level-up channel"
+								htmlFor={field.name}
+								description="Where the bot announces a level-up. Leave empty for no announcement."
+								error={field.state.meta.errors[0]?.toString()}
+							>
+								<Input
+									id={field.name}
+									value={field.state.value}
+									disabled={!canWrite}
+									placeholder="123456789012345678"
+									onBlur={field.handleBlur}
+									onChange={(event) => field.handleChange(event.target.value)}
+									className="font-mono tabular-nums"
 								/>
 							</FormField>
 						)}
