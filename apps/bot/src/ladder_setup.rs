@@ -336,20 +336,53 @@ fn slot_of(
 /// Called before any reward is written, because the foreign key would otherwise
 /// reject the insert. It is an upsert, so a guild already recorded keeps its
 /// dashboard-set name and only the fields Discord owns are refreshed.
+///
+/// The member count is refreshed on every call, not just on insert. Discord's
+/// `GuildCreate` is the only other writer and it fires exactly once per join, so a
+/// guild that was already recorded before the bot restarted kept whatever count it
+/// had then — in practice a zero, because the startup path runs before the gateway
+/// has ever sent `GuildCreate` for a fresh install. The dashboard read that zero as
+/// "0 members" for a server with 85 people in it.
 async fn ensure_guild_recorded(
     data: &Data,
     ctx: &serenity::Context,
     guild_id: serenity::GuildId,
 ) -> Result<(), crate::Error> {
-    use iam::domain::guild::GuildRepository;
-
-    if data.guilds.find_by_id(guild_id.get()).await?.is_some() {
-        return Ok(());
-    }
+    use iam::domain::guild::{GuildPatch, GuildRepository};
 
     // Read the guild rather than guessing: the row is what the dashboard lists, and
     // a placeholder name would show up there.
-    let guild = guild_id.to_partial_guild(&data.http()).await?;
+    //
+    // `get_guild_with_counts` rather than `to_partial_guild`: only the former sends
+    // `?with_counts=true`, and without it Discord omits `approximate_member_count`
+    // entirely — which is why the previous version wrote a zero and the dashboard
+    // read "0 members" for an 85-person server.
+    let guild = guild_id.to_partial_guild_with_counts(&data.http()).await?;
+
+    let member_count = guild
+        .approximate_member_count
+        .and_then(|count| i32::try_from(count).ok());
+
+    if data.guilds.find_by_id(guild_id.get()).await?.is_some() {
+        if let Some(member_count) = member_count {
+            data.guilds
+                .update(
+                    guild_id.get(),
+                    GuildPatch {
+                        member_count: Some(member_count),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+
+            debug!(
+                guild_id = guild_id.get(),
+                member_count, "refreshed the guild's member count"
+            );
+        }
+
+        return Ok(());
+    }
 
     data.guilds
         .upsert(iam::domain::guild::NewGuild {
@@ -357,15 +390,7 @@ async fn ensure_guild_recorded(
             name: guild.name.clone(),
             icon_url: guild.icon_url(),
             owner_discord_id: Some(guild.owner_id.get()),
-            // A partial guild carries an *approximate* count, and only when Discord
-            // chose to include it — `None` is normal here, not an error. The count
-            // is cosmetic on the dashboard and is refreshed by the next
-            // `GuildCreate`, so a zero is the honest placeholder rather than a
-            // failure.
-            member_count: guild
-                .approximate_member_count
-                .and_then(|count| i32::try_from(count).ok())
-                .unwrap_or_default(),
+            member_count: member_count.unwrap_or_default(),
         })
         .await?;
 
