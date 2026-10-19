@@ -25,6 +25,21 @@
 
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# One deploy at a time, enforced ON THE HOST.
+#
+# The workflow's `concurrency:` group serialises CI runs, but it cannot see a
+# manual `deploy-direct.sh` and does not help when CI and an operator deploy
+# concurrently. Both then write the same `current` symlink and restart the same
+# units, so the last one to finish wins regardless of which is newer.
+#
+# The lock is advisory and held for the whole script, released by the kernel if
+# the process dies. A second deploy waits rather than corrupting the first.
+# ---------------------------------------------------------------------------
+LOCK_FILE=/run/sudobot-deploy.lock
+exec 9>"$LOCK_FILE"
+flock 9
+
 SHA="${1:-}"
 if [[ -z "$SHA" ]]; then
   echo "usage: deploy-direct.sh <sha>" >&2
@@ -76,6 +91,29 @@ for bin in gateway bot migrate bootstrap; do
 done
 
 [[ -f "$ARTIFACT_DIR/web/index.html" ]] || die "payload is missing the dashboard build (web/index.html)"
+
+# ---------------------------------------------------------------------------
+# The payload must be the one built from $SHA.
+#
+# Without this the script labels a release with the SHA it was *told*, and takes
+# the binaries from a shared directory it does not control. Two deploys overlap:
+# CI's Deploy job and a manual run both `rm -rf` and refill
+# `/tmp/sudobot-payload`, so whichever wrote last decides what gets installed —
+# and the loser's SHA is written on top of the winner's binaries. Observed live:
+# a release directory named for one commit contained another commit's `bot`.
+#
+# That is the worst kind of wrong: `readlink current` reports a commit whose code
+# is not running, so every later diagnosis starts from a false premise. The
+# builder states which commit it built; a mismatch stops the deploy while the old
+# release is still serving.
+# ---------------------------------------------------------------------------
+if [[ -f "$ARTIFACT_DIR/RELEASE_SHA" ]]; then
+  payload_sha=$(tr -d '[:space:]' < "$ARTIFACT_DIR/RELEASE_SHA")
+  [[ "$payload_sha" == "$SHA" ]] || die \
+    "payload was built from $payload_sha but this deploy is for $SHA — refusing to label one commit's binaries with another's"
+else
+  log "WARNING: the payload declares no RELEASE_SHA, so it cannot be checked against $SHA"
+fi
 
 # A dynamically linked binary is portable in one direction only: an older build
 # host targeting a newer one is fine, the reverse is not. Fail here rather than as

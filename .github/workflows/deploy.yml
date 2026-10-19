@@ -119,6 +119,12 @@ jobs:
             cp "target/release/$bin" "payload/$bin"
           done
 
+          # Declare which commit these binaries are. The host keeps the payload in
+          # a shared directory, so a concurrent manual deploy can refill it; the
+          # deploy script refuses a payload whose declared SHA is not the one it is
+          # deploying, which turns a mislabelled release into a stopped deploy.
+          echo "${{ github.sha }}" > payload/RELEASE_SHA
+
           test -f payload/web/index.html || { echo "::error::the dashboard build is missing index.html"; exit 1; }
 
           echo "--- payload ---"
@@ -169,15 +175,21 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: sudobot-payload
-          path: /tmp/sudobot-payload
+          # Keyed by SHA, not a fixed name. A concurrent deploy — CI's, or an
+          # operator's manual one — would otherwise `rm -rf` and refill the same
+          # directory, and whichever wrote last would decide what gets installed
+          # under the *other* commit's label.
+          path: /tmp/sudobot-payload-${{ github.sha }}
 
       - name: Unpack the payload
+        env:
+          STAGING: /tmp/sudobot-payload-${{ github.sha }}
         run: |
           set -euo pipefail
-          tar -xzf /tmp/sudobot-payload/sudobot-payload.tar.gz -C /tmp/sudobot-payload
-          rm -f /tmp/sudobot-payload/sudobot-payload.tar.gz
-          ls -lh /tmp/sudobot-payload
-          du -sh /tmp/sudobot-payload
+          tar -xzf "$STAGING/sudobot-payload.tar.gz" -C "$STAGING"
+          rm -f "$STAGING/sudobot-payload.tar.gz"
+          ls -lh "$STAGING"
+          du -sh "$STAGING"
 
       - name: Setup SSH key
         env:
@@ -191,9 +203,15 @@ jobs:
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Ship the payload
+        env:
+          STAGING: /tmp/sudobot-payload-${{ github.sha }}
+          REMOTE_STAGING: /tmp/sudobot-payload-${{ github.sha }}
         run: |
           set -euo pipefail
-          ssh "$VPS_USER@$VPS_HOST" "rm -rf /tmp/sudobot-payload /tmp/sudobot-systemd && mkdir -p /tmp/sudobot-payload /tmp/sudobot-systemd"
+          # The remote staging directory is removed before the copy so a rerun of
+          # this same SHA cannot leave a stale binary behind. It is per-SHA, so it
+          # cannot disturb a deploy running for a different commit.
+          ssh "$VPS_USER@$VPS_HOST" "rm -rf $REMOTE_STAGING /tmp/sudobot-systemd-${{ github.sha }} && mkdir -p $REMOTE_STAGING /tmp/sudobot-systemd-${{ github.sha }}"
 
           # `-r` and the trailing `/.` on the source: the payload directory holds
           # both files and the `web/` subdirectory, and a single recursive copy is
@@ -201,22 +219,27 @@ jobs:
           # looks equivalent but is not — the glob already matched
           # `/tmp/sudobot-payload/web`, so the second scp finds a directory where
           # it wanted a regular file and fails.
-          scp -qr /tmp/sudobot-payload/. "$VPS_USER@$VPS_HOST:/tmp/sudobot-payload/"
+          scp -qr "$STAGING/." "$VPS_USER@$VPS_HOST:$REMOTE_STAGING/"
 
           scp -q systemd/sudobot-gateway.service systemd/sudobot-bot.service systemd/sudobot.caddy \
-            "$VPS_USER@$VPS_HOST:/tmp/sudobot-systemd/"
+            "$VPS_USER@$VPS_HOST:/tmp/sudobot-systemd-${{ github.sha }}/"
 
       - name: Deploy
+        env:
+          REMOTE_STAGING: /tmp/sudobot-payload-${{ github.sha }}
         # The script runs ON the host and is SCP'd from THIS checkout, never from
         # the live release: running it from /opt/sudobot/current would be a
         # chicken-and-egg trap where a fix to the deploy script can never take
         # effect, because the copy that would apply it is itself the stale one.
         run: |
-          scp -q scripts/deploy-direct.sh "$VPS_USER@$VPS_HOST:/tmp/deploy-sudobot.sh"
+          # The script is named per SHA too: a shared `/tmp/deploy-sudobot.sh`
+          # means a deploy can execute a script written by a different run, so the
+          # fix you shipped is not the code that runs.
+          scp -q scripts/deploy-direct.sh "$VPS_USER@$VPS_HOST:/tmp/deploy-sudobot-${{ github.sha }}.sh"
           ssh "$VPS_USER@$VPS_HOST" \
-            "sed -i 's/\r$//' /tmp/deploy-sudobot.sh && \
-             sudo ARTIFACT_DIR=/tmp/sudobot-payload SYSTEMD_SRC=/tmp/sudobot-systemd \
-               bash /tmp/deploy-sudobot.sh '${{ github.sha }}'"
+            "sed -i 's/\r$//' /tmp/deploy-sudobot-${{ github.sha }}.sh && \
+             sudo ARTIFACT_DIR=$REMOTE_STAGING SYSTEMD_SRC=/tmp/sudobot-systemd-${{ github.sha }} \
+               bash /tmp/deploy-sudobot-${{ github.sha }}.sh '${{ github.sha }}'"
 
       - name: Verify
         run: |
