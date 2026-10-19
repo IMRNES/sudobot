@@ -68,13 +68,10 @@ pub struct DiscordOAuthConfig {
 impl DiscordOAuthConfig {
     pub fn from_env(web_origin: &str) -> Result<Self> {
         let client_secret = crate::optional("DISCORD_CLIENT_SECRET", "");
-        let redirect_uri = crate::optional(
+        let redirect_uri = Self::validated_redirect_uri(&crate::optional(
             "DISCORD_REDIRECT_URI",
-            &format!(
-                "{}/api/v1/iam/auth/discord/callback",
-                web_origin.trim_end_matches('/')
-            ),
-        );
+            &format!("{}/auth/callback", web_origin.trim_end_matches('/')),
+        ))?;
 
         Ok(Self {
             client_id: crate::required("DISCORD_CLIENT_ID")?,
@@ -83,6 +80,37 @@ impl DiscordOAuthConfig {
             client_secret: Some(client_secret).filter(|secret| !secret.trim().is_empty()),
             redirect_uri,
         })
+    }
+
+    /// Check the redirect target before it is ever sent to Discord.
+    ///
+    /// Split out of `from_env` so the rules can be tested: `unsafe_code` is
+    /// forbidden, so a test cannot set an environment variable, and reading the
+    /// process environment instead would make the test order-dependent.
+    ///
+    /// Discord compares `redirect_uri` literally, so both failures here are ones
+    /// that would otherwise surface as `50040 Invalid OAuth2 redirect_uri` *after*
+    /// the user has approved the application — a message that blames the portal
+    /// and gives no hint that the value we send is the problem.
+    fn validated_redirect_uri(raw: &str) -> Result<String> {
+        // Checked before any trimming: silently repairing the value here would
+        // hide the same mistake on the Discord side, where it cannot be repaired
+        // and shows up as `50040`. A value with a space in it is a configuration
+        // error, and this process reports those instead of guessing.
+        if raw.contains(char::is_whitespace) {
+            anyhow::bail!(
+                "`DISCORD_REDIRECT_URI` contains whitespace ({raw:?}). Discord matches this \
+                 value literally, so a stray space makes every sign-in fail with `50040 Invalid \
+                 OAuth2 redirect_uri` — including a space pasted into the Developer Portal."
+            );
+        }
+        // A browser has to be able to follow this, so it is a page, not an
+        // endpoint: the API's `/auth/discord/callback` only accepts POST and
+        // answers Discord's redirect with a 405.
+        if !raw.starts_with("http://") && !raw.starts_with("https://") {
+            anyhow::bail!("`DISCORD_REDIRECT_URI` must be an absolute http(s) URL (got `{raw}`)");
+        }
+        Ok(raw.to_string())
     }
 
     /// The secret, or `None` when this installation has none.
@@ -195,5 +223,44 @@ mod tests {
         let config = with_secret(Some("a-real-secret"));
         assert!(config.is_configured());
         assert_eq!(config.client_secret(), Some("a-real-secret"));
+    }
+
+    /// Discord sends the browser to this URL with a GET. The API's own
+    /// `/auth/discord/callback` is POST-only, so pointing Discord at it earns a
+    /// 405 *after* the user has approved the app — and by then the code is spent.
+    /// The dashboard's page is the only correct target.
+    #[test]
+    fn a_plain_redirect_uri_is_accepted() {
+        let uri =
+            DiscordOAuthConfig::validated_redirect_uri("https://sudobot.example/auth/callback")
+                .expect("a plain https URL is valid");
+        assert_eq!(uri, "https://sudobot.example/auth/callback");
+    }
+
+    /// A space is the failure this was written for: the registered URI in the
+    /// portal had a leading space, so Discord rejected every authorize request
+    /// with `50040 Invalid OAuth2 redirect_uri` while both the portal and our
+    /// configuration *looked* identical.
+    #[test]
+    fn a_redirect_uri_with_whitespace_is_refused_by_name() {
+        let error =
+            DiscordOAuthConfig::validated_redirect_uri(" https://sudobot.example/auth/callback")
+                .expect_err("a leading space must be refused");
+
+        let message = error.to_string();
+        assert!(
+            message.contains("whitespace"),
+            "the message must name the actual problem: {message}"
+        );
+        assert!(
+            message.contains("50040"),
+            "and the Discord error it causes, so the operator can connect the two: {message}"
+        );
+    }
+
+    #[test]
+    fn a_relative_redirect_uri_is_refused() {
+        assert!(DiscordOAuthConfig::validated_redirect_uri("/auth/callback").is_err());
+        assert!(DiscordOAuthConfig::validated_redirect_uri("").is_err());
     }
 }
