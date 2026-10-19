@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use tracing::warn;
 
 /// Signing and lifetime settings for the JWT pair the API issues.
 #[derive(Debug, Clone)]
@@ -87,29 +88,36 @@ impl DiscordOAuthConfig {
     /// Split out of `from_env` so the rules can be tested: `unsafe_code` is
     /// forbidden, so a test cannot set an environment variable, and reading the
     /// process environment instead would make the test order-dependent.
-    ///
-    /// Discord compares `redirect_uri` literally, so both failures here are ones
-    /// that would otherwise surface as `50040 Invalid OAuth2 redirect_uri` *after*
-    /// the user has approved the application — a message that blames the portal
-    /// and gives no hint that the value we send is the problem.
     fn validated_redirect_uri(raw: &str) -> Result<String> {
-        // Checked before any trimming: silently repairing the value here would
-        // hide the same mistake on the Discord side, where it cannot be repaired
-        // and shows up as `50040`. A value with a space in it is a configuration
-        // error, and this process reports those instead of guessing.
-        if raw.contains(char::is_whitespace) {
-            anyhow::bail!(
-                "`DISCORD_REDIRECT_URI` contains whitespace ({raw:?}). Discord matches this \
-                 value literally, so a stray space makes every sign-in fail with `50040 Invalid \
-                 OAuth2 redirect_uri` — including a space pasted into the Developer Portal."
-            );
-        }
         // A browser has to be able to follow this, so it is a page, not an
-        // endpoint: the API's `/auth/discord/callback` only accepts POST and
-        // answers Discord's redirect with a 405.
-        if !raw.starts_with("http://") && !raw.starts_with("https://") {
+        // endpoint: the API's `/auth/discord/callback` accepts POST (exchange) and
+        // GET (forward), but a relative value cannot be handed to Discord at all.
+        //
+        // The scheme test looks past leading whitespace on purpose. Discord matches
+        // the registered string literally, so when the Developer Portal entry was
+        // pasted with a stray leading space, that space is part of the value that
+        // works — refusing it here would reject the only URI Discord will accept.
+        if !raw.trim_start().starts_with("http://") && !raw.trim_start().starts_with("https://") {
             anyhow::bail!("`DISCORD_REDIRECT_URI` must be an absolute http(s) URL (got `{raw}`)");
         }
+
+        // Whitespace is warned about, not refused. Discord compares this value
+        // literally against the URI registered in the Developer Portal, so the two
+        // must match *exactly* — and if the registered entry was pasted with a
+        // stray space, this value has to carry the same space to work at all.
+        // Refusing it here would take a working deployment down over a cosmetic
+        // difference; the real fix is to remove the space in the portal and then
+        // drop it here too.
+        if raw.contains(char::is_whitespace) {
+            warn!(
+                redirect_uri = ?raw,
+                "`DISCORD_REDIRECT_URI` contains whitespace. Discord matches this value \
+                 literally, so it must equal the Developer Portal entry character for \
+                 character — including this space. Remove the space in the portal, then \
+                 here. A mismatch shows up as `50040 Invalid OAuth2 redirect_uri`."
+            );
+        }
+
         Ok(raw.to_string())
     }
 
@@ -225,10 +233,9 @@ mod tests {
         assert_eq!(config.client_secret(), Some("a-real-secret"));
     }
 
-    /// Discord sends the browser to this URL with a GET. The API's own
-    /// `/auth/discord/callback` is POST-only, so pointing Discord at it earns a
-    /// 405 *after* the user has approved the app — and by then the code is spent.
-    /// The dashboard's page is the only correct target.
+    /// Discord sends the browser to this URL with a GET, and the API accepts GET
+    /// there (it forwards to the dashboard) — so the only hard rule is that the
+    /// value is absolute and can therefore be handed to Discord at all.
     #[test]
     fn a_plain_redirect_uri_is_accepted() {
         let uri =
@@ -237,24 +244,20 @@ mod tests {
         assert_eq!(uri, "https://sudobot.example/auth/callback");
     }
 
-    /// A space is the failure this was written for: the registered URI in the
-    /// portal had a leading space, so Discord rejected every authorize request
-    /// with `50040 Invalid OAuth2 redirect_uri` while both the portal and our
-    /// configuration *looked* identical.
+    /// A space is *kept*, not repaired or refused. Discord compares this value
+    /// literally against the Developer Portal entry, so when the registered URI has
+    /// a stray space the only value that works is one carrying the same space.
+    /// Trimming it here would break a deployment whose portal entry is already
+    /// pasted wrong — and the portal entry is the thing that actually has to change.
     #[test]
-    fn a_redirect_uri_with_whitespace_is_refused_by_name() {
-        let error =
-            DiscordOAuthConfig::validated_redirect_uri(" https://sudobot.example/auth/callback")
-                .expect_err("a leading space must be refused");
+    fn a_redirect_uri_keeps_whitespace_because_discord_matches_it_literally() {
+        let raw = " https://sudobot.example/auth/callback";
+        let uri = DiscordOAuthConfig::validated_redirect_uri(raw)
+            .expect("a registered-with-a-space URI must still be usable");
 
-        let message = error.to_string();
-        assert!(
-            message.contains("whitespace"),
-            "the message must name the actual problem: {message}"
-        );
-        assert!(
-            message.contains("50040"),
-            "and the Discord error it causes, so the operator can connect the two: {message}"
+        assert_eq!(
+            uri, raw,
+            "the value is forwarded untouched: the registered string is what Discord compares"
         );
     }
 
