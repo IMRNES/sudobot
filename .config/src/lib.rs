@@ -5,6 +5,7 @@
 //! workspace reads `std::env` directly, so a misconfigured deployment fails at
 //! startup with one readable error instead of halfway through a request.
 
+pub mod access;
 pub mod app;
 pub mod auth;
 pub mod database;
@@ -13,6 +14,7 @@ pub mod env;
 
 use anyhow::{Context, Result};
 
+pub use access::DashboardAccessConfig;
 pub use app::AppServer;
 pub use auth::{AuthConfig, AuthStack, DiscordOAuthConfig};
 pub use database::DatabaseConfig;
@@ -27,6 +29,11 @@ pub struct AppConfig {
     pub database: DatabaseConfig,
     pub auth: AuthConfig,
     pub discord: DiscordConfig,
+    /// Who may open the dashboard, and in which guild.
+    ///
+    /// Optional because the bot has no use for it: only the API serves the
+    /// dashboard, and requiring it would refuse to start a bot-only deployment.
+    pub access: Option<DashboardAccessConfig>,
 }
 
 impl AppConfig {
@@ -44,6 +51,7 @@ impl AppConfig {
             database: DatabaseConfig::from_env()?,
             auth: AuthConfig::from_env()?,
             discord: DiscordConfig::from_env()?,
+            access: DashboardAccessConfig::from_env_optional()?,
         })
     }
 

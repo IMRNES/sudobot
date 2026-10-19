@@ -93,9 +93,14 @@ fn build_state(config: &AppConfig, db: DatabaseConnection) -> Result<AppState> {
             auth.jwt.access_token_ttl_secs,
             auth.jwt.refresh_token_ttl_secs,
         ),
-        oauth_client: ReqwestDiscordOAuthClient::new(auth.oauth.clone())
-            .context("building the discord client")?,
+        oauth_client: ReqwestDiscordOAuthClient::with_access(
+            auth.oauth.clone(),
+            config.access.clone(),
+            Some(config.discord.token().to_string()),
+        )
+        .context("building the discord client")?,
         clock: iam::application::ports::SystemClock,
+        access: config.access.clone(),
 
         users: SeaOrmUserRepository::new(db.clone()),
         guilds: SeaOrmGuildRepository::new(db.clone()),

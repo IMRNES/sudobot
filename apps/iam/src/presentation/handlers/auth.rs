@@ -5,22 +5,21 @@ use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::response::Redirect;
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
-use tracing::{instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::application::auth::{
-    DiscordLoginCommand, DiscordLoginUseCase, LogoutCommand, LogoutUseCase, RefreshCommand,
-    RefreshUseCase, SyncGuildsCommand, SyncGuildsUseCase,
+    DashboardMembershipUseCase, DiscordLoginCommand, DiscordLoginUseCase, LogoutCommand,
+    LogoutUseCase, RefreshCommand, RefreshUseCase,
 };
 use crate::application::ports::Clock;
-use crate::application::user::GetMeUseCase;
 use crate::domain::auth::{AuthError, OAUTH_STATE_TTL_SECS, generate_state};
+use crate::domain::user::UserRepository;
 use crate::presentation::dto::auth::{
     AuthorizeResponse, CallbackRequest, LoginResponse, LogoutRequest, LogoutResponse, MeResponse,
     RefreshRequest, RefreshResponse, UserResponse,
 };
 use crate::presentation::error::AppError;
-use crate::presentation::extract::{ValidatedJson, ValidatedRequest};
+use crate::presentation::extract::ValidatedJson;
 use crate::presentation::middleware::AuthenticatedUser;
 use crate::presentation::state::AppState;
 
@@ -113,6 +112,14 @@ pub async fn callback(
 ) -> Result<Json<LoginResponse>, AppError> {
     consume_state(&state, &request.state)?;
 
+    // Checked before the exchange: without a configured guild there is no way to
+    // decide who is staff, so every login would fail at the whitelist with a
+    // denial that looks like a missing role. Naming the real problem up front
+    // turns an afternoon of Discord-permission debugging into one log line.
+    let Some(access) = state.access.clone() else {
+        return Err(AppError::from(AuthError::LoginNotConfigured));
+    };
+
     let use_case = DiscordLoginUseCase::new(
         state.oauth_client.clone(),
         state.users.clone(),
@@ -125,90 +132,76 @@ pub async fn callback(
         .execute(DiscordLoginCommand { code: request.code })
         .await?;
 
+    // The gate has already passed — `execute` refuses otherwise — so this records
+    // the membership row the guild-scoped routes authorize against.
+    let membership = DashboardMembershipUseCase::new(
+        state.guilds.clone(),
+        state.guild_members.clone(),
+        state.guild_roles.clone(),
+        state.clock,
+    );
+
+    let guild = membership.execute(result.user.id, access.guild_id).await?;
+
+    // The verdict is logged rather than returned: the client only ever sees an
+    // admitted login, so this line is the one place that records *why* someone got
+    // in, which is what an operator needs when a role is later stripped.
+    info!(
+        user_id = %result.user.id,
+        discord_id = result.user.discord_id,
+        guild_id = access.guild_id,
+        "login admitted by the dashboard whitelist"
+    );
+    debug!(verdict = ?result.membership, "whitelist verdict");
+
     let expires_in = (result.tokens.access_expires_at - state.clock.now()).num_seconds();
 
-    // The Discord token is returned so the client can immediately import its
-    // guilds with `POST /auth/sync-guilds`. It is short-lived at Discord's end and
-    // never touches our database.
     Ok(Json(LoginResponse {
         user: result.user.into(),
         access_token: result.tokens.access_token,
         refresh_token: result.tokens.refresh_token,
         expires_in,
-        discord_access_token: result.discord_access_token,
-        guilds: Vec::new(),
+        guilds: vec![guild.into()],
     }))
 }
 
-/// Imports the caller's guilds from Discord, then returns their session view.
+/// The signed-in account and the guild this dashboard serves.
 ///
-/// A separate step from the callback so a Discord hiccup while listing guilds
-/// cannot fail a sign-in that has already succeeded.
-#[instrument(skip_all, fields(user = %actor.id))]
-pub async fn sync_guilds(
-    State(state): State<AppState>,
-    actor: AuthenticatedUser,
-    ValidatedJson(request): ValidatedJson<SyncGuildsRequest>,
-) -> Result<Json<MeResponse>, AppError> {
-    let sync = SyncGuildsUseCase::new(
-        state.oauth_client.clone(),
-        state.guilds.clone(),
-        state.guild_members.clone(),
-        state.guild_roles.clone(),
-        state.clock,
-    );
-
-    let outcome = sync
-        .execute(SyncGuildsCommand {
-            user_id: actor.id,
-            discord_access_token: request.discord_access_token.clone(),
-        })
-        .await?;
-
-    // The token has now done its job. Revoking is best-effort: a failure leaves it
-    // valid at Discord until it expires, which is worth a log line and not an error
-    // in the caller's face.
-    let login = DiscordLoginUseCase::new(
-        state.oauth_client.clone(),
-        state.users.clone(),
-        state.refresh_tokens.clone(),
-        state.token_service.clone(),
-        state.clock,
-    );
-    if let Err(error) = login
-        .revoke_discord_token(&request.discord_access_token)
-        .await
-    {
-        warn!(%error, "guild sync finished but the discord token could not be revoked");
-    }
-
-    tracing::debug!(
-        manageable = outcome.manageable.len(),
-        ignored = outcome.ignored.len(),
-        "guilds imported"
-    );
-
-    me(State(state), actor).await
-}
-
-/// The signed-in account and the guilds they administer.
+/// The guild list is derived, not stored per request: `DASHBOARD_GUILD_ID` is the
+/// only guild, and a membership row proves the caller was admitted. A signed-in
+/// caller with no membership row is one whose login predates the whitelist — they
+/// are sent through the gate again rather than shown an empty dashboard.
 #[instrument(skip_all, fields(user = %actor.id))]
 pub async fn me(
     State(state): State<AppState>,
     actor: AuthenticatedUser,
 ) -> Result<Json<MeResponse>, AppError> {
-    let use_case = GetMeUseCase::new(
-        state.users.clone(),
+    let Some(access) = state.access.clone() else {
+        return Err(AppError::from(AuthError::LoginNotConfigured));
+    };
+
+    let use_case = DashboardMembershipUseCase::new(
         state.guilds.clone(),
         state.guild_members.clone(),
         state.guild_roles.clone(),
+        state.clock,
     );
 
-    let view = use_case.execute(actor.id).await?;
+    // Recorded idempotently on every `/me`: a session that outlives a role change
+    // is re-checked here, and the upsert is a single statement.
+    let guild = use_case.execute(actor.id, access.guild_id).await?;
+
+    let user = state
+        .users
+        .find_by_id(actor.id)
+        .await?
+        .ok_or_else(|| AppError::from(AuthError::UserNotFound))?;
+
+    info!(user_id = %actor.id, guild_id = access.guild_id, "session resolved");
 
     Ok(Json(MeResponse {
-        user: UserResponse::from(view.user),
-        guilds: view.guilds.into_iter().map(Into::into).collect(),
+        user: UserResponse::from(user),
+        guilds: vec![guild.into()],
     }))
 }
 
@@ -279,23 +272,4 @@ fn consume_state(state: &AppState, received: &str) -> Result<(), AppError> {
     }
 
     Ok(())
-}
-
-/// Body for the guild import.
-#[derive(Debug, Deserialize)]
-pub struct SyncGuildsRequest {
-    pub discord_access_token: String,
-}
-
-impl ValidatedRequest for SyncGuildsRequest {
-    fn validate(value: &serde_json::Value) -> Result<(), Vec<(String, String)>> {
-        match value
-            .get("discord_access_token")
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-        {
-            Some(token) if !token.is_empty() => Ok(()),
-            _ => Err(vec![("discord_access_token".into(), "is required".into())]),
-        }
-    }
 }

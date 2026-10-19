@@ -8,6 +8,7 @@ use crate::infrastructure::repository::{
 use crate::infrastructure::service::{
     Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient,
 };
+use sudobot_config::DashboardAccessConfig;
 
 /// Everything a handler needs, in one cheap-to-clone value.
 ///
@@ -25,6 +26,12 @@ pub struct AppState {
     pub token_service: JwtTokenService,
     pub oauth_client: ReqwestDiscordOAuthClient,
     pub clock: SystemClock,
+
+    /// The one guild the dashboard serves, plus who may open it.
+    ///
+    /// `None` when `DASHBOARD_GUILD_ID` is unset. Handlers refuse rather than
+    /// pretending an empty whitelist admits everyone.
+    pub access: Option<DashboardAccessConfig>,
 
     pub users: SeaOrmUserRepository,
     pub guilds: SeaOrmGuildRepository,

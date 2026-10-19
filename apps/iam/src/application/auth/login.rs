@@ -2,7 +2,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::application::ports::{
-    Clock, DiscordOAuthClient, DiscordOAuthError, TokenPair, TokenService,
+    Clock, DiscordOAuthClient, DiscordOAuthError, GuildMembership, TokenPair, TokenService,
 };
 use crate::domain::auth::{AuthError, NewRefreshToken, RefreshTokenRepository, hash_refresh_token};
 use crate::domain::user::{NewUser, User, UserRepository, validate_username};
@@ -15,22 +15,29 @@ pub struct DiscordLoginCommand {
 
 /// What a successful login hands back.
 ///
-/// The Discord access token is returned rather than revoked here: importing the
-/// user's guilds needs it, and that import is a separate use case that must not be
-/// able to fail the sign-in. The caller revokes it once it is done — see
-/// [`DiscordLoginUseCase::revoke_discord_token`].
+/// The membership verdict travels with the result so the caller does not repeat
+/// the Discord lookup when it records the membership row. The Discord access token
+/// is deliberately absent: it is revoked before this returns, because nothing
+/// downstream needs it any more.
 #[derive(Debug, Clone)]
 pub struct LoginResult {
     pub user: User,
     pub tokens: TokenPair,
-    pub discord_access_token: String,
+    /// Always [`GuildMembership::Allowed`] — a login that fails the check is an
+    /// error, not a result.
+    pub membership: GuildMembership,
 }
 
-/// Trades an OAuth code for a session.
+/// Trades an OAuth code for a session, gating on the guild whitelist.
 ///
 /// Four writes happen here and they must agree: the account is created on first
 /// login, refreshed on every later one, and a refresh token is stored so the
 /// session can outlive the short-lived access token.
+///
+/// The whitelist check runs *before* the token pair is issued. Issuing first and
+/// checking afterwards would hand a working session to anyone with a Discord
+/// account and let a later request decide their access — the gate belongs at the
+/// moment identity is established.
 pub struct DiscordLoginUseCase<O, U, R, T, C> {
     oauth: O,
     users: U,
@@ -57,7 +64,7 @@ where
         }
     }
 
-    /// Completes the login: code → Discord profile → local account → token pair.
+    /// Completes the login: code → Discord profile → whitelist → account → tokens.
     pub async fn execute(&self, command: DiscordLoginCommand) -> Result<LoginResult, AuthError> {
         let now = self.clock.now();
 
@@ -75,11 +82,39 @@ where
             .await
             .map_err(map_oauth_error)?;
 
-        // 2. Find or create the account. Discord's id is the identity; everything
+        // 2. Gate on the guild whitelist, while the identity is fresh and *before*
+        //    any local state is written or any session token is minted.
+        let membership = self
+            .oauth
+            .fetch_membership(profile.id)
+            .await
+            .map_err(map_oauth_error)?;
+
+        // The token has now done its job — the dashboard never needs the caller's
+        // Discord token, because roles are read with the bot's. Revoking here
+        // rather than in the caller means no code path can forget, and the caller's
+        // error return below cannot leave it alive either.
+        if let Err(error) = self.oauth.revoke(&access_token).await {
+            warn!(%error, "could not revoke the discord access token after login");
+        }
+
+        if let GuildMembership::RoleMissing { .. } | GuildMembership::NotAMember = membership {
+            // Logged with the distinction intact: "not in the guild" and "in the
+            // guild without the role" need different fixes, and Discord's response
+            // alone does not make the difference visible to an operator.
+            warn!(
+                discord_id = profile.id,
+                verdict = ?membership,
+                "login refused: the account holds no whitelisted dashboard role"
+            );
+            return Err(AuthError::NotWhitelisted);
+        }
+
+        // 3. Find or create the account. Discord's id is the identity; everything
         //    else on the profile can change under us.
         let user = self.upsert_user(&profile).await?;
 
-        // 3. Mint the pair and persist the refresh half as a hash.
+        // 4. Mint the pair and persist the refresh half as a hash.
         let tokens = self
             .tokens
             .issue_pair(user.id, now)
@@ -97,7 +132,7 @@ where
         Ok(LoginResult {
             user,
             tokens,
-            discord_access_token: access_token,
+            membership,
         })
     }
 

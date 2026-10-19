@@ -16,15 +16,20 @@ pub struct DiscordProfile {
     pub email: Option<String>,
 }
 
-/// A guild the user belongs to, with what Discord says they may do there.
+/// Whether a member holds one of the roles that grant dashboard access.
+///
+/// The dashboard is single-tenant: one guild, and the operator decides who may
+/// open it by giving them a Discord role. That makes the role the only fact worth
+/// fetching, which is why this type carries no nickname, no permissions bitfield
+/// and no guild list — none of them change the answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscordGuildSummary {
-    pub id: u64,
-    pub name: String,
-    pub icon_url: Option<String>,
-    /// Discord's permission bitfield for this user in this guild.
-    pub permissions: u64,
-    pub owner: bool,
+pub enum GuildMembership {
+    /// In the guild, holding at least one of the whitelisted roles.
+    Allowed { username: String },
+    /// In the guild, but with none of the whitelisted roles.
+    RoleMissing { username: String },
+    /// Not in the guild at all — Discord answers 404 for the member lookup.
+    NotAMember,
 }
 
 #[derive(Debug, Error)]
@@ -56,8 +61,9 @@ pub enum DiscordOAuthError {
 
 /// Everything the login flow needs from Discord.
 ///
-/// Four methods, because that is the whole conversation: trade the code, read the
-/// profile, read the guilds, and on logout revoke what was issued.
+/// Three methods, because that is the whole conversation with a whitelist
+/// dashboard: trade the code, read the profile, and ask whether that member holds
+/// an allowed role. The guild list is gone on purpose — see [`GuildMembership`].
 pub trait DiscordOAuthClient: Send + Sync {
     /// Exchanges the `code` from the consent screen for an access token.
     fn exchange_code(
@@ -70,10 +76,16 @@ pub trait DiscordOAuthClient: Send + Sync {
         access_token: &str,
     ) -> impl Future<Output = Result<DiscordProfile, DiscordOAuthError>> + Send;
 
-    fn fetch_guilds(
+    /// Resolves the caller's role membership in the one configured guild.
+    ///
+    /// Uses the bot token, not the caller's OAuth token: the `guilds` scope
+    /// returns no roles at all, so a whitelist check cannot be built on it. The
+    /// bot is already in the guild and may read members, which is the capability
+    /// this question actually needs.
+    fn fetch_membership(
         &self,
-        access_token: &str,
-    ) -> impl Future<Output = Result<Vec<DiscordGuildSummary>, DiscordOAuthError>> + Send;
+        discord_user_id: u64,
+    ) -> impl Future<Output = Result<GuildMembership, DiscordOAuthError>> + Send;
 
     /// Tells Discord to drop an access token; best-effort on logout.
     fn revoke(

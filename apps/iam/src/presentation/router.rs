@@ -54,8 +54,8 @@ pub fn build_router(state: AppState) -> Router {
 ///
 /// `/auth` belongs here, which is the part that is easy to get wrong: starting a
 /// login, finishing it, and refreshing an expired access token all happen *before*
-/// the caller has a valid one. Only `/auth/sync-guilds` and `/auth/logout` need a
-/// session, and each checks for it itself.
+/// the caller has a valid one. Only `/auth/logout` needs a session, and it checks
+/// for one itself.
 fn public_routes() -> Router<AppState> {
     Router::new()
         .route("/health", get(handlers::health::health))
@@ -71,10 +71,10 @@ fn protected_routes() -> Router<AppState> {
 
 /// Starting and ending a session.
 ///
-/// Nested under the public tree, so none of these may assume a token. The two that
-/// do need one — `logout` and `sync-guilds` — take the `AuthenticatedUser`
-/// extractor, which rejects a request whose middleware never inserted it. That is
-/// a deliberate trade: the alternative is a third router tier for two routes.
+/// Nested under the public tree, so none of these may assume a token. `logout`
+/// is the one that does need one — it takes the `AuthenticatedUser` extractor,
+/// which rejects a request whose middleware never inserted it. That is a
+/// deliberate trade: the alternative is a third router tier for a single route.
 fn auth_routes() -> Router<AppState> {
     Router::new()
         .route("/discord/authorize", post(handlers::auth::authorize))
@@ -89,7 +89,6 @@ fn auth_routes() -> Router<AppState> {
         )
         .route("/refresh", post(handlers::auth::refresh))
         .route("/logout", post(handlers::auth::logout))
-        .route("/sync-guilds", post(handlers::auth::sync_guilds))
 }
 
 /// The signed-in caller.

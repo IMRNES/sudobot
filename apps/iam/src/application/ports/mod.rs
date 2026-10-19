@@ -10,6 +10,6 @@ pub mod password;
 pub mod token;
 
 pub use clock::{Clock, SystemClock};
-pub use discord::{DiscordGuildSummary, DiscordOAuthClient, DiscordOAuthError, DiscordProfile};
+pub use discord::{DiscordOAuthClient, DiscordOAuthError, DiscordProfile, GuildMembership};
 pub use password::{PasswordError, PasswordService};
 pub use token::{TokenClaims, TokenError, TokenPair, TokenService, TokenType};

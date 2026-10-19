@@ -21,7 +21,6 @@ pub mod user;
 pub mod welcome;
 
 pub use ports::{
-    Clock, DiscordGuildSummary, DiscordOAuthClient, DiscordOAuthError, DiscordProfile,
-    PasswordError, PasswordService, SystemClock, TokenClaims, TokenError, TokenPair, TokenService,
-    TokenType,
+    Clock, DiscordOAuthClient, DiscordOAuthError, DiscordProfile, GuildMembership, PasswordError,
+    PasswordService, SystemClock, TokenClaims, TokenError, TokenPair, TokenService, TokenType,
 };

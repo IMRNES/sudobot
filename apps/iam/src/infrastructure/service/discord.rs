@@ -1,11 +1,18 @@
-//! Discord's OAuth2 and user endpoints, behind `DiscordOAuthClient`.
+//! Discord's OAuth2 endpoints and the guild membership check, behind
+//! [`DiscordOAuthClient`].
+//!
+//! Two different credentials live here, and the split is the point:
+//! the caller's OAuth token answers "who is this", while the bot token answers
+//! "do they hold the staff role". The OAuth `guilds` scope cannot answer the
+//! second question — it returns a guild list with no roles in it — so the
+//! whitelist check is built on the bot's own credential instead.
 
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
-use sudobot_config::DiscordOAuthConfig;
+use sudobot_config::{DashboardAccessConfig, DiscordOAuthConfig};
 
 use crate::application::ports::{
-    DiscordGuildSummary, DiscordOAuthClient, DiscordOAuthError, DiscordProfile,
+    DiscordOAuthClient, DiscordOAuthError, DiscordProfile, GuildMembership,
 };
 
 const API_BASE: &str = "https://discord.com/api";
@@ -14,11 +21,29 @@ const REVOKE_URL: &str = "https://discord.com/api/oauth2/token/revoke";
 /// Discord's CDN renders avatars at any power-of-two size up to 4096.
 const AVATAR_SIZE: u32 = 256;
 
+/// Every request carries this. Discord's edge rate-limits unidentified clients
+/// aggressively, and a 429 body is not the JSON a caller expects — so an absent
+/// user agent surfaces as "could not read the response" instead of "slow down".
+///
+/// A literal rather than `CARGO_PKG_REPOSITORY`: the crate manifest sets no
+/// `repository` field, so the macro would expand to an empty string and produce
+/// the malformed header `DiscordBot (, 0.1.0)`.
+const USER_AGENT: &str = "DiscordBot (https://github.com/IMRNES/sudobot, 0.1.0)";
+
 /// Talks to Discord over HTTPS.
+///
+/// Carries two credentials because it answers two different questions: the OAuth
+/// client handles "who signed in", the bot token handles "may they open the
+/// dashboard". Keeping them in one type is what lets a handler do both without
+/// reaching for a second service.
 #[derive(Clone)]
 pub struct ReqwestDiscordOAuthClient {
     http: Client,
     config: DiscordOAuthConfig,
+    /// Credentials for the membership check, absent when the dashboard has no
+    /// whitelist configured.
+    access: Option<DashboardAccessConfig>,
+    bot_token: Option<String>,
 }
 
 impl ReqwestDiscordOAuthClient {
@@ -27,14 +52,38 @@ impl ReqwestDiscordOAuthClient {
     /// Returning the failure here rather than at the first login keeps a broken
     /// build from looking like an OAuth outage.
     pub fn new(config: DiscordOAuthConfig) -> anyhow::Result<Self> {
+        Self::with_access(config, None, None)
+    }
+
+    /// Adds the guild whitelist, so `fetch_membership` can run.
+    ///
+    /// Separate from [`new`](Self::new) because the two are genuinely independent:
+    /// token exchange needs the OAuth client, and the whitelist needs the bot. An
+    /// installation that configures only the first still serves logins, and one
+    /// that configures only the second still refuses them — with a message that
+    /// names the missing half rather than a generic denial.
+    pub fn with_access(
+        config: DiscordOAuthConfig,
+        access: Option<DashboardAccessConfig>,
+        bot_token: Option<String>,
+    ) -> anyhow::Result<Self> {
         let http = Client::builder()
             // A hung request would hold a request handler open; the user can always
             // restart the flow, so a hard ceiling is better than an unbounded wait.
             .timeout(std::time::Duration::from_secs(10))
+            // Without this, a Discord 429 with a JSON body is surfaced as a decode
+            // failure while retrying, which reads as a malformed response instead of
+            // "slow down".
+            .user_agent(USER_AGENT)
             .build()
             .map_err(|error| anyhow::anyhow!("building the discord http client: {error}"))?;
 
-        Ok(Self { http, config })
+        Ok(Self {
+            http,
+            config,
+            access,
+            bot_token,
+        })
     }
 
     /// The consent-screen URL the dashboard redirects the browser to.
@@ -53,6 +102,14 @@ impl ReqwestDiscordOAuthClient {
     /// first so the browser is refused here instead of by Discord.
     pub fn is_configured(&self) -> bool {
         self.config.is_configured()
+    }
+
+    /// Whether the guild whitelist is configured, so a login can be gated.
+    ///
+    /// Needs both halves — the guild to check and a token able to read its
+    /// members — because either one alone cannot answer the question.
+    pub fn has_access_config(&self) -> bool {
+        self.access.is_some() && self.bot_token.is_some()
     }
 
     /// The token endpoint, exposed for diagnostics and tests.
@@ -161,21 +218,54 @@ impl DiscordOAuthClient for ReqwestDiscordOAuthClient {
         Ok(payload.into())
     }
 
-    async fn fetch_guilds(
+    async fn fetch_membership(
         &self,
-        access_token: &str,
-    ) -> Result<Vec<DiscordGuildSummary>, DiscordOAuthError> {
-        let payload: Vec<GuildPayload> = self
-            .get("/users/@me/guilds", access_token)
-            .await?
+        discord_user_id: u64,
+    ) -> Result<GuildMembership, DiscordOAuthError> {
+        // Refused with a distinct error rather than treated as "no roles": an
+        // installation that never configured the whitelist would otherwise refuse
+        // every user with "you are not staff", which is indistinguishable from a
+        // genuinely missing role and so never gets investigated.
+        let (Some(access), Some(bot_token)) = (&self.access, &self.bot_token) else {
+            return Err(DiscordOAuthError::NotConfigured);
+        };
+
+        let response = self
+            .http
+            .get(format!(
+                "{API_BASE}/guilds/{}/members/{discord_user_id}",
+                access.guild_id
+            ))
+            .header("Authorization", format!("Bot {bot_token}"))
+            .send()
+            .await
+            .map_err(transport)?;
+
+        let status = response.status();
+
+        // 404 is the answer, not a failure: Discord uses it to say "no such member
+        // in this guild", which is exactly the deny case. Reading it as an error
+        // would turn every non-member's sign-in into a 500.
+        if status == StatusCode::NOT_FOUND {
+            return Ok(GuildMembership::NotAMember);
+        }
+
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(DiscordOAuthError::Api(format!("{status}: {body}")));
+        }
+
+        // The body is decoded into a wire type local to this module, then reduced
+        // to a domain answer. `GuildMembership` deliberately does not carry a
+        // nickname or a permissions bitfield: neither changes the decision, and a
+        // type that mirrors Discord's member object would break on the next field
+        // Discord adds.
+        let payload: MemberPayload = response
             .json()
             .await
             .map_err(|error| DiscordOAuthError::MalformedResponse(error.to_string()))?;
 
-        payload
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()
+        Ok(payload.into_membership(access, discord_user_id))
     }
 
     async fn revoke(&self, access_token: &str) -> Result<(), DiscordOAuthError> {
@@ -248,44 +338,42 @@ impl From<UserPayload> for DiscordProfile {
 }
 
 #[derive(Debug, Deserialize)]
-struct GuildPayload {
-    id: String,
-    name: String,
-    icon: Option<String>,
-    /// Discord sends permissions as a string, for the same reason it sends ids as
-    /// one.
-    permissions: Option<String>,
-    owner: Option<bool>,
+struct MemberPayload {
+    /// Discord sends snowflakes as strings, because they exceed what a JSON number
+    /// carries exactly.
+    roles: Vec<String>,
+    user: MemberUserPayload,
 }
 
-impl TryFrom<GuildPayload> for DiscordGuildSummary {
-    type Error = DiscordOAuthError;
+#[derive(Debug, Deserialize)]
+struct MemberUserPayload {
+    username: String,
+}
 
-    fn try_from(payload: GuildPayload) -> Result<Self, Self::Error> {
-        let id = payload
-            .id
-            .parse()
-            .map_err(|error| DiscordOAuthError::MalformedResponse(format!("guild id: {error}")))?;
+impl MemberPayload {
+    /// Reduces Discord's member object to the one answer the dashboard needs.
+    ///
+    /// The allowlist is checked inside [`DashboardAccessConfig::permits`] and takes
+    /// precedence, so an operator account gets in even when its role is missing —
+    /// which is the situation this configuration exists for.
+    fn into_membership(
+        self,
+        access: &DashboardAccessConfig,
+        discord_user_id: u64,
+    ) -> GuildMembership {
+        let roles: Vec<u64> = self
+            .roles
+            .iter()
+            .filter_map(|role| role.parse::<u64>().ok())
+            .collect();
 
-        let permissions = payload
-            .permissions
-            .as_deref()
-            .unwrap_or("0")
-            .parse()
-            .map_err(|error| {
-                DiscordOAuthError::MalformedResponse(format!("guild permissions: {error}"))
-            })?;
+        let username = self.user.username;
 
-        Ok(Self {
-            id,
-            name: payload.name,
-            icon_url: payload
-                .icon
-                .as_deref()
-                .map(|hash| guild_icon_url(&payload.id, hash)),
-            permissions,
-            owner: payload.owner.unwrap_or(false),
-        })
+        if access.permits(discord_user_id, Some(&roles)) {
+            GuildMembership::Allowed { username }
+        } else {
+            GuildMembership::RoleMissing { username }
+        }
     }
 }
 
@@ -293,10 +381,6 @@ impl TryFrom<GuildPayload> for DiscordGuildSummary {
 /// not ours to build — so the field stays empty rather than pointing at a 404.
 fn avatar_url(discord_id: &str, hash: &str) -> String {
     format!("https://cdn.discordapp.com/avatars/{discord_id}/{hash}.png?size={AVATAR_SIZE}")
-}
-
-fn guild_icon_url(discord_id: &str, hash: &str) -> String {
-    format!("https://cdn.discordapp.com/icons/{discord_id}/{hash}.png?size={AVATAR_SIZE}")
 }
 
 /// Reads `retry_after` out of a 429 body, defaulting to Discord's own minimum.
@@ -349,18 +433,89 @@ mod tests {
     }
 
     #[test]
-    fn a_guild_permission_string_becomes_a_bitfield() {
-        let summary = DiscordGuildSummary::try_from(GuildPayload {
-            id: "2".to_string(),
-            name: "A guild".to_string(),
-            icon: None,
-            permissions: Some("32".to_string()),
-            owner: None,
-        })
-        .unwrap();
+    fn a_member_holding_a_whitelisted_role_is_allowed() {
+        let access = DashboardAccessConfig {
+            guild_id: 1,
+            role_ids: vec![42],
+            allowlist_user_ids: vec![],
+        };
 
-        assert_eq!(summary.permissions, 32);
-        assert!(!summary.owner);
+        let membership = MemberPayload {
+            roles: vec!["7".to_string(), "42".to_string()],
+            user: MemberUserPayload {
+                username: "someone".to_string(),
+            },
+        }
+        .into_membership(&access, 500);
+
+        assert_eq!(
+            membership,
+            GuildMembership::Allowed {
+                username: "someone".to_string()
+            }
+        );
+    }
+
+    /// Sorted roles are not guaranteed to be numeric strings of equal length, and a
+    /// snowflake round-trips through a string. A member whose only role is not
+    /// whitelisted must be reported as such — not silently allowed.
+    #[test]
+    fn a_member_without_a_whitelisted_role_is_distinguished() {
+        let access = DashboardAccessConfig {
+            guild_id: 1,
+            role_ids: vec![42],
+            allowlist_user_ids: vec![],
+        };
+
+        let membership = MemberPayload {
+            roles: vec!["1451210604114346059".to_string()],
+            user: MemberUserPayload {
+                username: "someone".to_string(),
+            },
+        }
+        .into_membership(&access, 500);
+
+        assert!(matches!(membership, GuildMembership::RoleMissing { .. }));
+    }
+
+    /// Discord reports guild roles as strings, and one unparseable entry must not
+    /// discard the ones around it.
+    #[test]
+    fn an_unparseable_role_does_not_hide_a_whitelisted_one() {
+        let access = DashboardAccessConfig {
+            guild_id: 1,
+            role_ids: vec![42],
+            allowlist_user_ids: vec![],
+        };
+
+        let membership = MemberPayload {
+            roles: vec!["not-a-snowflake".to_string(), "42".to_string()],
+            user: MemberUserPayload {
+                username: "someone".to_string(),
+            },
+        }
+        .into_membership(&access, 500);
+
+        assert!(matches!(membership, GuildMembership::Allowed { .. }));
+    }
+
+    #[test]
+    fn an_allowlisted_user_is_allowed_without_any_role() {
+        let access = DashboardAccessConfig {
+            guild_id: 1,
+            role_ids: vec![42],
+            allowlist_user_ids: vec![500],
+        };
+
+        let membership = MemberPayload {
+            roles: vec![],
+            user: MemberUserPayload {
+                username: "operator".to_string(),
+            },
+        }
+        .into_membership(&access, 500);
+
+        assert!(matches!(membership, GuildMembership::Allowed { .. }));
     }
 
     #[test]

@@ -9,13 +9,15 @@ import type { IGuildSummary } from "#/libs/api/types.ts"
 import { formatNumber } from "#/libs/utils.ts"
 
 /**
- * The server picker that greets a signed-in user.
+ * The server list a signed-in user sees.
  *
- * Every card links into the guild layout. Guilds where the bot is absent are
- * shown but not linked: the API reports them (`bot_present: false`) and hiding
- * them would leave an admin wondering why their server is missing.
+ * Single-tenant by design: the API returns exactly the one guild named in
+ * `DASHBOARD_GUILD_ID`, and only for callers who hold a whitelisted role there.
+ * So the empty state below is not "you have no servers" — it means the deployment
+ * has no guild configured, which is an operator problem, not something the visitor
+ * can fix by inviting a bot they lack the permission to invite.
  */
-export function GuildGrid({ guilds, userName }: { guilds: IGuildSummary[]; userName: string }) {
+export function GuildGrid({ guilds }: { guilds: IGuildSummary[] }) {
 	const manageable = guilds.filter((guild) => guild.bot_present)
 
 	if (manageable.length === 0) {
@@ -24,8 +26,8 @@ export function GuildGrid({ guilds, userName }: { guilds: IGuildSummary[]; userN
 				<CardContent className="px-6 py-2">
 					<EmptyState
 						icon={Bot}
-						title="No servers with sudobot yet"
-						description={`${userName}, invite the bot to a server you manage and it will appear here. Servers where you lack the Manage Server permission are not listed.`}
+						title="No server is configured"
+						description="This dashboard serves a single server, and none is set up yet. An operator needs to set DASHBOARD_GUILD_ID and invite the bot; nobody can reach this page otherwise."
 					/>
 				</CardContent>
 			</Card>
@@ -44,8 +46,8 @@ export function GuildGrid({ guilds, userName }: { guilds: IGuildSummary[]; userN
 export function DashboardHeader({ guildCount }: { guildCount: number }) {
 	return (
 		<PageHeader
-			title="Your servers"
-			description={`${formatNumber(guildCount)} ${guildCount === 1 ? "server" : "servers"} where you can manage sudobot.`}
+			title="Your server"
+			description={`${formatNumber(guildCount)} ${guildCount === 1 ? "server" : "servers"} this dashboard manages.`}
 		/>
 	)
 }

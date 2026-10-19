@@ -45,6 +45,21 @@ pub enum AuthError {
     #[error("you are not a member of guild {0}")]
     NotAGuildMember(u64),
 
+    /// The caller signed in successfully but holds no whitelisted role in the one
+    /// guild this dashboard serves.
+    ///
+    /// A 403 rather than a 401: the credentials were fine and re-authenticating
+    /// would produce the same answer. What is missing is authority.
+    #[error("this dashboard is limited to staff; you do not hold an allowed role in that server")]
+    NotWhitelisted,
+
+    /// `DASHBOARD_GUILD_ID` names a guild the bot is not actually in.
+    ///
+    /// Distinct from a refusal: the configuration is wrong, not the caller, and
+    /// retrying after an invite fixes it.
+    #[error("the configured dashboard guild {0} is unknown to this deployment")]
+    DashboardGuildUnavailable(u64),
+
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }

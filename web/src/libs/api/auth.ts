@@ -6,7 +6,6 @@ import type {
 	ILogoutResponse,
 	IMeResponse,
 	IRefreshResponse,
-	ISyncGuildsRequest,
 } from "#/libs/api/types.ts"
 import { storeOAuthState } from "#/libs/auth/session.ts"
 
@@ -34,18 +33,6 @@ export const authApi = {
 			auth: false,
 			body: payload,
 		}),
-
-	/**
-	 * Import the caller's Discord guilds, then return the session view.
-	 *
-	 * Needs a bearer token, so it runs after the callback has stored one. The
-	 * callback returns `guilds: []` on purpose — listing guilds is a separate
-	 * step so a Discord hiccup there cannot fail a sign-in that already
-	 * succeeded — which makes this call the only thing that populates the
-	 * dashboard's server list.
-	 */
-	syncGuilds: (payload: ISyncGuildsRequest) =>
-		api.post<IMeResponse>("/auth/sync-guilds", { body: payload }),
 
 	/**
 	 * Rotate the token pair. `skipRefresh` is essential: this is the call the

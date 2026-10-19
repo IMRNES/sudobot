@@ -145,14 +145,18 @@ impl DiscordOAuthConfig {
     }
 
     /// Builds the consent screen URL the dashboard redirects to.
+    ///
+    /// Asks for `identify` alone. The `guilds` scope is deliberately absent: it
+    /// returns a guild *list* with no roles in it, which cannot answer "does this
+    /// user hold the staff role" — that question is answered by the bot token in
+    /// `DiscordOAuthClient::fetch_membership`. Requesting it anyway would ask every
+    /// user to grant access to their whole server list for nothing.
     pub fn authorize_url(&self, state: &str) -> String {
-        let scope = "identify%20guilds";
         format!(
-            "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}",
+            "{}?client_id={}&redirect_uri={}&response_type=code&scope=identify&state={}",
             self.authorize_endpoint(),
             self.client_id,
             urlencode(&self.redirect_uri),
-            scope,
             state,
         )
     }

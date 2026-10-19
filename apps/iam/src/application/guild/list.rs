@@ -3,9 +3,9 @@ use crate::domain::guild::{Guild, GuildError, GuildRepository};
 
 /// Lists guilds the bot is in, for the platform-admin view.
 ///
-/// Ordinary users get their guild list from `GetMeUseCase` instead: it is the
-/// guilds *they* administer, which is a different question with a different
-/// answer for almost everyone.
+/// Distinct from the dashboard's own view, which is not a list at all: the
+/// dashboard serves one guild, taken from configuration, and its callers have
+/// already been admitted by the whitelist gate.
 pub struct ListGuildsUseCase<G> {
     guilds: G,
 }

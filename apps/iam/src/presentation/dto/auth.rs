@@ -4,7 +4,7 @@ use uuid::Uuid;
 use zod_rs::prelude::{Schema, ZodSchema};
 
 use super::{optional_snowflake, snowflake};
-use crate::application::user::MyGuildView;
+use crate::application::auth::GuildView;
 use crate::domain::user::User;
 
 /// The signed-in account, as the dashboard sees it.
@@ -49,8 +49,8 @@ pub struct GuildSummaryResponse {
     pub permissions: Vec<String>,
 }
 
-impl From<MyGuildView> for GuildSummaryResponse {
-    fn from(view: MyGuildView) -> Self {
+impl From<GuildView> for GuildSummaryResponse {
+    fn from(view: GuildView) -> Self {
         Self {
             id: view.id,
             name: view.name,
@@ -87,6 +87,10 @@ pub struct CallbackRequest {
 }
 
 /// A completed login.
+///
+/// `guilds` carries the one guild this dashboard serves, so the client renders the
+/// picker from the login response alone. There is no longer a second call to import
+/// guilds: the guild is configuration, and the whitelist gate has already run.
 #[derive(Debug, Serialize)]
 pub struct LoginResponse {
     pub user: UserResponse,
@@ -94,10 +98,6 @@ pub struct LoginResponse {
     pub refresh_token: String,
     /// Seconds until the access token expires.
     pub expires_in: i64,
-    /// Discord's own access token, handed over so the client can immediately call
-    /// `POST /auth/sync-guilds` to import the guilds it may administer. It is never
-    /// stored server-side and the client drops it after that one call.
-    pub discord_access_token: String,
     pub guilds: Vec<GuildSummaryResponse>,
 }
 

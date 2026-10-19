@@ -39,6 +39,7 @@ use iam::infrastructure::service::{
     Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient,
 };
 use iam::presentation::{AppState, build_router};
+use sudobot_config::DashboardAccessConfig;
 
 /// The secret the test service signs with.
 ///
@@ -70,15 +71,36 @@ fn mount(state: AppState) -> axum::Router {
 }
 
 /// Builds the real application state against the test database.
+///
+/// Seeds the one guild the dashboard administers, because that guild is now
+/// configuration rather than something Discord reports: `/me` writes a membership
+/// row into it, and without a row there is nothing for the guild's routes to
+/// authorize against.
 async fn state(db: DatabaseConnection) -> AppState {
     let oauth = sudobot_config::DiscordOAuthConfig::from_env("http://localhost:5173")
         .expect("DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET must be set for this test");
 
+    let access = DashboardAccessConfig {
+        guild_id: seed_guild(&SeaOrmGuildRepository::new(db.clone()), "Dashboard Guild").await,
+        // A role nobody holds. The whitelist only gates *login*, which these tests
+        // cannot perform — it would need a real Discord exchange — so the value
+        // exists to prove the configuration is threaded through, not to admit
+        // anyone.
+        role_ids: vec![dummy_role_id()],
+        allowlist_user_ids: vec![],
+    };
+
     AppState {
         password_service: Argon2PasswordService::new(),
         token_service: JwtTokenService::new(SECRET, ACCESS_TTL_SECS, 2_592_000),
-        oauth_client: ReqwestDiscordOAuthClient::new(oauth).expect("the discord client builds"),
+        oauth_client: ReqwestDiscordOAuthClient::with_access(
+            oauth,
+            Some(access.clone()),
+            Some("test-bot-token".to_string()),
+        )
+        .expect("the discord client builds"),
         clock: SystemClock,
+        access: Some(access),
 
         users: SeaOrmUserRepository::new(db.clone()),
         guilds: SeaOrmGuildRepository::new(db.clone()),
@@ -91,6 +113,23 @@ async fn state(db: DatabaseConnection) -> AppState {
         welcome: SeaOrmWelcomeRepository::new(db.clone()),
         auto_roles: SeaOrmAutoRoleRepository::new(db),
     }
+}
+
+/// The guild the state under test administers.
+///
+/// Read back from the configuration rather than returned alongside it, so a test
+/// that only wants the state is not forced to destructure a tuple it ignores.
+fn dashboard_guild_id(state: &AppState) -> u64 {
+    state
+        .access
+        .as_ref()
+        .expect("the test state always configures a dashboard guild")
+        .guild_id
+}
+
+/// A role id that exists only as configuration.
+fn dummy_role_id() -> u64 {
+    unique_guild_id()
 }
 
 /// Issues an access token the way a completed login would.
@@ -325,7 +364,6 @@ async fn the_session_endpoints_reject_anonymous_callers() {
         ("GET", "/api/v1/iam/me"),
         ("GET", "/api/v1/iam/guilds"),
         ("GET", "/api/v1/iam/guilds/1/members"),
-        ("POST", "/api/v1/iam/auth/sync-guilds"),
     ] {
         // No header at all.
         let response = app
@@ -361,7 +399,7 @@ async fn the_session_endpoints_reject_anonymous_callers() {
 
 #[tokio::test]
 #[ignore = "needs DATABASE_URL and a migrated database"]
-async fn me_returns_the_token_subject_and_their_guilds() {
+async fn me_returns_the_token_subject_and_the_configured_guild() {
     let Some(db) = connect().await else { return };
     let users = SeaOrmUserRepository::new(db.clone());
     let app_state = state(db).await;
@@ -384,9 +422,20 @@ async fn me_returns_the_token_subject_and_their_guilds() {
         "the response describes the token's subject, not a parameter"
     );
     assert_eq!(json["user"]["username"], "http-test");
-    assert!(
-        json["guilds"].as_array().unwrap().is_empty(),
-        "an account with no memberships has no guilds"
+
+    // Exactly the configured guild, always: the dashboard is single-tenant, so a
+    // signed-in caller can never be shown an empty list and conclude they have no
+    // servers.
+    let guilds = json["guilds"].as_array().unwrap();
+    assert_eq!(guilds.len(), 1, "one configured guild, never a bare list");
+    assert_eq!(
+        guilds[0]["id"].as_str().unwrap(),
+        dashboard_guild_id(&app_state).to_string(),
+        "the guild shown is the one in DASHBOARD_GUILD_ID"
+    );
+    assert_eq!(
+        guilds[0]["role_slug"], "admin",
+        "a whitelisted caller lands on the admin role"
     );
 }
 

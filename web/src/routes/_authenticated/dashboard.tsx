@@ -15,12 +15,11 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 function DashboardPage() {
 	const { session } = Route.useRouteContext()
 	const guilds = session?.guilds ?? []
-	const userName = session?.user.global_name ?? session?.user.username ?? "there"
 
 	return (
 		<div className="flex flex-col gap-6">
 			<DashboardHeader guildCount={guilds.length} />
-			<GuildGrid guilds={guilds} userName={userName} />
+			<GuildGrid guilds={guilds} />
 		</div>
 	)
 }

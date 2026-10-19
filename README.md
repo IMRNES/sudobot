@@ -87,6 +87,28 @@ first request that needs it.
 
 See `.env.example` for the full list with defaults.
 
+### Dashboard access is a role whitelist, checked before the session exists
+
+The dashboard serves **one** guild, named by `DASHBOARD_GUILD_ID`. There is no
+server picker and no per-guild permission matrix at login: two ways in, both
+explicit.
+
+| Variable | Meaning |
+|---|---|
+| `DASHBOARD_GUILD_ID` | The single guild. Unset means sign-in is disabled entirely. |
+| `DASHBOARD_WHITELIST_ROLE_IDS` | Comma-separated Discord role ids that may sign in. |
+| `DASHBOARD_ALLOWLIST_USER_IDS` | User ids allowed in regardless of roles. |
+
+The role lookup runs on the **bot token**, not the caller's OAuth token, and it
+runs before any session token is minted — a Discord account that holds none of the
+listed roles is refused with `403` and never receives a token pair. The OAuth scope
+is `identify` alone: the `guilds` scope returns a guild list containing no roles,
+so it cannot answer "is this user staff", and requesting it would ask every visitor
+to hand over their whole server list for nothing.
+
+`GET /users/@me/guilds` is not called anywhere. The bot therefore needs the
+**Server Members intent**, or every lookup fails.
+
 ### Dashboard sign-in needs two things only the Developer Portal can set
 
 Both are deliberately optional at startup, so a bot-only deployment runs without
@@ -97,11 +119,12 @@ button that goes nowhere.
 1. **The client secret.** Discord shows `DISCORD_CLIENT_SECRET` exactly once, when
    it is generated. It is not readable back over the API — `GET /applications/@me`
    has no such field — so a lost secret must be reset in the portal.
-2. **The redirect URI.** Add
-   `https://<host>/api/v1/iam/auth/discord/callback` to
+2. **The redirect URI.** Add `https://<host>/auth/callback` to
    Developer Portal → OAuth2 → Redirects. This is also not settable over the API:
    `PATCH /applications/@me` accepts `redirect_uris`, returns `200`, and leaves the
-   list empty. `GET` will keep reporting `[]` until a human adds it.
+   list empty. `GET` will keep reporting `[]` until a human adds it. Discord
+   compares the value byte for byte, so a stray leading space in the portal entry
+   produces `50040 Invalid OAuth2 redirect_uri` even though the entry looks right.
 
 ## Schema changes
 

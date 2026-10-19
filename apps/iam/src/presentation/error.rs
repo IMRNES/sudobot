@@ -172,6 +172,13 @@ impl From<AuthError> for AppError {
 
             AuthError::UserNotFound => Self::NotFound(error.to_string()),
             AuthError::NotAGuildMember(_) => Self::Forbidden(error.to_string()),
+            // A signed-in non-member is not a failure to authenticate, so this must
+            // not be a 401: the client would refresh, get the same answer, and loop.
+            AuthError::NotWhitelisted => Self::Forbidden(error.to_string()),
+            // The deployment's own configuration gap — the bot was never invited to
+            // the guild named in `DASHBOARD_GUILD_ID`. 503 with a message, so an
+            // operator sees the real cause instead of a permissions mystery.
+            AuthError::DashboardGuildUnavailable(_) => Self::Unavailable(error.to_string()),
             AuthError::DiscordUnavailable(detail) => Self::Internal(detail),
             AuthError::Repository(inner) => inner.into(),
         }
