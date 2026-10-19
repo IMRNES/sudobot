@@ -464,6 +464,7 @@ impl<E: EconomyRepository, C: Clock> PurchaseItemUseCase<E, C> {
                 reason: TransactionReason::Purchase,
                 // The buyer is the account owner; there is no other party.
                 actor_discord_id: None,
+                note: None,
                 idempotency_key: command.idempotency_key.clone(),
             })
             .await

@@ -99,6 +99,8 @@ pub struct Transaction {
     pub balance_after: i64,
     pub reason: String,
     pub actor_discord_id: Option<u64>,
+    /// An admin's own words, when the category alone does not explain the row.
+    pub note: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -111,6 +113,12 @@ pub struct NewTransaction {
     pub amount: i64,
     pub reason: TransactionReason,
     pub actor_discord_id: Option<u64>,
+    /// An admin's own words, when the category alone does not explain the row.
+    ///
+    /// Separate from `reason` because `reason` is a closed set the ledger's rules
+    /// are keyed on — only `admin_deduct` may overdraw, for one — so free text
+    /// cannot live there. This is what makes "why was I given 5000?" answerable.
+    pub note: Option<String>,
     /// A retried Discord interaction must not pay twice; the repository rejects
     /// the second insert on this key.
     pub idempotency_key: Option<String>,

@@ -37,6 +37,9 @@ pub struct TransactionResponse {
     pub amount: i64,
     pub balance_after: i64,
     pub reason: String,
+    /// The admin's own words, when the category alone does not explain the entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
     #[serde(with = "optional_snowflake")]
     pub actor_discord_id: Option<u64>,
     pub created_at: DateTime<Utc>,
@@ -49,6 +52,7 @@ impl From<Transaction> for TransactionResponse {
             amount: transaction.amount,
             balance_after: transaction.balance_after,
             reason: transaction.reason,
+            note: transaction.note,
             actor_discord_id: transaction.actor_discord_id,
             created_at: transaction.created_at,
         }

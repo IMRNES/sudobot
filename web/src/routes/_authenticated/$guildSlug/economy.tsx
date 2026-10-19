@@ -100,7 +100,12 @@ function TransactionLedger({ guildId, discordId }: { guildId: string; discordId:
 		{
 			id: "reason",
 			header: "Reason",
-			cell: (entry) => <span className="text-sm">{entry.reason}</span>,
+			cell: (entry) => (
+				<div className="flex flex-col gap-0.5">
+					<span className="text-sm">{entry.reason}</span>
+					{entry.note ? <span className="text-xs text-muted-foreground">{entry.note}</span> : null}
+				</div>
+			),
 		},
 		{
 			id: "amount",

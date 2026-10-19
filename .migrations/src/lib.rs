@@ -14,6 +14,7 @@ mod m20261018_000005_create_economy;
 mod m20261018_000006_create_leveling;
 mod m20261018_000007_create_welcome;
 mod m20261018_000008_create_autoroles;
+mod m20261019_000001_add_transaction_note;
 
 /// Every migration, in the order they must be applied.
 pub struct Migrator;
@@ -31,6 +32,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261018_000006_create_leveling::Migration),
             Box::new(m20261018_000007_create_welcome::Migration),
             Box::new(m20261018_000008_create_autoroles::Migration),
+            Box::new(m20261019_000001_add_transaction_note::Migration),
         ]
     }
 }

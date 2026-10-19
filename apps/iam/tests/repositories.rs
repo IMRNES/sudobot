@@ -148,6 +148,7 @@ async fn two_credits_produce_two_correct_balances() {
             amount: 250,
             reason: TransactionReason::AdminGrant,
             actor_discord_id: Some(1),
+            note: None,
             idempotency_key: Some(format!("itest-first-{guild_id}")),
         })
         .await
@@ -173,6 +174,7 @@ async fn two_credits_produce_two_correct_balances() {
             amount: 100,
             reason: TransactionReason::AdminGrant,
             actor_discord_id: Some(1),
+            note: None,
             idempotency_key: Some(format!("itest-second-{guild_id}")),
         })
         .await
@@ -217,6 +219,7 @@ async fn a_debit_that_exceeds_the_balance_still_records_the_shortfall() {
             amount: -50,
             reason: TransactionReason::AdminDeduct,
             actor_discord_id: Some(1),
+            note: None,
             idempotency_key: Some(format!("itest-overdraw-{guild_id}")),
         })
         .await
@@ -348,6 +351,7 @@ async fn the_daily_stamp_is_written_by_the_ledger() {
             amount: 100,
             reason: TransactionReason::Daily,
             actor_discord_id: None,
+            note: None,
             idempotency_key: Some(format!("itest-daily-{guild_id}")),
         })
         .await
@@ -391,6 +395,7 @@ async fn a_replayed_transaction_is_refused() {
         amount: 500,
         reason: TransactionReason::AdminGrant,
         actor_discord_id: Some(1),
+        note: None,
         idempotency_key: Some(key.clone()),
     };
 

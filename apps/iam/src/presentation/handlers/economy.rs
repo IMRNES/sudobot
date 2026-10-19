@@ -10,6 +10,9 @@ use crate::application::economy::{
     DeleteShopItemUseCase, GetAccountUseCase, LeaderboardEntry, ListTransactionsUseCase,
     ShopItemView, ShopListingUseCase, UpdateShopItemCommand, UpdateShopItemUseCase,
 };
+// `find_by_id` is a trait method, not an inherent one — without this the call site
+// fails with "no method named find_by_id", which points at the wrong place.
+use crate::domain::user::UserRepository;
 use crate::presentation::dto::PageResponse;
 use crate::presentation::dto::economy::{
     AccountResponse, AdjustBalanceRequest, CreateShopItemRequest, LeaderboardEntryResponse,
@@ -83,12 +86,23 @@ pub async fn adjust_balance(
     authorize(&state, actor.id, guild_id, "economy:write").await?;
 
     let use_case = AdjustBalanceUseCase::new(state.economy.clone());
+
+    // The ledger records the actor as a Discord id, and the session only knows the
+    // user row's UUID, so the id is resolved here. A missing row leaves it null
+    // rather than failing the adjustment: the write is what the caller asked for.
+    let actor_discord_id = state
+        .users
+        .find_by_id(actor.id)
+        .await?
+        .map(|user| user.discord_id);
+
     let account = use_case
         .execute(AdjustBalanceCommand {
             guild_id,
             discord_user_id: discord_id,
             amount: request.amount,
             actor_user_id: Some(actor.id),
+            actor_discord_id,
             reason: request.reason,
         })
         .await?;

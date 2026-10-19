@@ -324,6 +324,7 @@ impl EconomyRepository for FakeEconomyRepository {
             balance_after: account.balance,
             reason: reason.as_str().to_string(),
             actor_discord_id: transaction.actor_discord_id,
+            note: transaction.note,
             created_at: fixed_now(),
         };
 

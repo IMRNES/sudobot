@@ -14,6 +14,8 @@ pub struct Model {
     pub balance_after: i64,
     pub reason: String,
     pub actor_discord_id: Option<i64>,
+    /// The admin's free text on an adjustment; null for machine-written rows.
+    pub note: Option<String>,
     #[sea_orm(unique)]
     pub idempotency_key: Option<String>,
     pub created_at: DateTimeWithTimeZone,

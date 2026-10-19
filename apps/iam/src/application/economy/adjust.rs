@@ -16,6 +16,12 @@ pub struct AdjustBalanceCommand {
     pub amount: i64,
     /// The dashboard user who made the change, for the audit line.
     pub actor_user_id: Option<Uuid>,
+    /// The same person's Discord id, which is what the ledger stores.
+    ///
+    /// Resolved by the caller: the ledger's `actor_discord_id` is a snowflake so a
+    /// ledger row can be joined to a member without a second table, while a
+    /// dashboard session only knows the user row's UUID.
+    pub actor_discord_id: Option<u64>,
     /// Why. Required, because an adjustment with no stated reason is an
     /// unexplainable number in somebody's history three months later.
     pub reason: String,
@@ -102,10 +108,14 @@ impl<E: EconomyRepository> AdjustBalanceUseCase<E> {
                 discord_user_id: command.discord_user_id,
                 amount: command.amount,
                 reason,
-                // The ledger identifies actors by Discord id and an adjustment is
-                // made by a dashboard user, so there is no id to record here: the
-                // actor is carried in the log line below instead.
-                actor_discord_id: None,
+                // The admin's own words, finally stored. This used to be logged and
+                // dropped, so a ledger row read "admin_grant" and nothing said why.
+                note: Some(command.reason.trim().to_string()),
+                // The dashboard identifies people by user id; the ledger by Discord
+                // id. Both are needed to answer "who gave this?": the caller's user
+                // row carries the Discord id, so it is resolved here rather than
+                // left null as it was.
+                actor_discord_id: command.actor_discord_id,
                 // An admin adjustment is not a retryable client action, but
                 // accepting a key keeps the write path uniform for callers that
                 // do have one.
@@ -148,6 +158,7 @@ mod tests {
         AdjustBalanceCommand {
             guild_id: 7,
             discord_user_id: 42,
+            actor_discord_id: None,
             amount,
             actor_user_id: Some(Uuid::new_v4()),
             reason: "event prize".to_string(),
@@ -168,6 +179,53 @@ mod tests {
         assert_eq!(ledger.len(), 1);
         assert_eq!(ledger[0].amount, 500);
         assert_eq!(ledger[0].reason, TransactionReason::AdminGrant.as_str());
+    }
+
+    /// The admin's typed reason has to reach the ledger, not just the log.
+    ///
+    /// It used to be logged and dropped: the row said `admin_grant` and nothing
+    /// explained the number, so "why was I given 500?" was unanswerable from the
+    /// data. `reason` cannot hold it — it is a closed set the rules key on — so it
+    /// goes in `note`.
+    #[tokio::test]
+    async fn the_admins_reason_is_stored_on_the_ledger_row() {
+        let economy = FakeEconomyRepository::new();
+
+        AdjustBalanceUseCase::new(economy.clone())
+            .execute(AdjustBalanceCommand {
+                reason: "  won the meme contest  ".to_string(),
+                ..command(500)
+            })
+            .await
+            .expect("granted");
+
+        let ledger = economy.transactions();
+        assert_eq!(
+            ledger[0].note.as_deref(),
+            Some("won the meme contest"),
+            "trimmed, and actually stored"
+        );
+    }
+
+    /// The ledger records an actor by Discord id; a dashboard session only knows
+    /// the user row's UUID, so the id is resolved by the caller and shows up here.
+    #[tokio::test]
+    async fn the_actors_discord_id_reaches_the_ledger() {
+        let economy = FakeEconomyRepository::new();
+
+        AdjustBalanceUseCase::new(economy.clone())
+            .execute(AdjustBalanceCommand {
+                actor_discord_id: Some(1_504_073_757_256_318_976),
+                ..command(10)
+            })
+            .await
+            .expect("granted");
+
+        assert_eq!(
+            economy.transactions()[0].actor_discord_id,
+            Some(1_504_073_757_256_318_976),
+            "the ledger must name who did it, not null"
+        );
     }
 
     #[tokio::test]

@@ -197,6 +197,8 @@ export interface ITransactionResponse {
 	amount: number
 	balance_after: number
 	reason: string
+	/** The admin's own words on an adjustment; absent on machine-written rows. */
+	note?: string | null
 	actor_discord_id: string | null
 	created_at: string
 }

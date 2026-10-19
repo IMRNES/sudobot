@@ -204,6 +204,7 @@ impl EconomyRepository for SeaOrmEconomyRepository {
             actor_discord_id: sea_orm::ActiveValue::Set(
                 transaction.actor_discord_id.map(snowflake),
             ),
+            note: sea_orm::ActiveValue::Set(transaction.note),
             idempotency_key: sea_orm::ActiveValue::Set(transaction.idempotency_key),
             created_at: sea_orm::ActiveValue::Set(now),
         };
@@ -444,6 +445,7 @@ impl From<economy_transactions::Model> for Transaction {
             balance_after: model.balance_after,
             reason: model.reason,
             actor_discord_id: model.actor_discord_id.map(snowflake_from_db),
+            note: model.note,
             created_at: to_utc(model.created_at),
         }
     }

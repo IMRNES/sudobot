@@ -91,6 +91,9 @@ impl<E: EconomyRepository, C: Clock> ClaimDailyUseCase<E, C> {
                 amount: DAILY_REWARD,
                 reason: TransactionReason::Daily,
                 actor_discord_id: None,
+                // A daily claim needs no explanation: the category is the whole
+                // story.
+                note: None,
                 idempotency_key: command.idempotency_key,
             })
             .await

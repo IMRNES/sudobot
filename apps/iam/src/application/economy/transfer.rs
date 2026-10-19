@@ -113,6 +113,7 @@ impl<E: EconomyRepository, C: Clock> TransferUseCase<E, C> {
                 reason: TransactionReason::Transfer,
                 // The sender moved their own money, so there is no separate actor.
                 actor_discord_id: None,
+                note: None,
                 idempotency_key: command.idempotency_key.clone(),
             })
             .await
@@ -148,6 +149,7 @@ impl<E: EconomyRepository, C: Clock> TransferUseCase<E, C> {
                 // The counterparty is what makes a received transfer readable in
                 // the recipient's history.
                 actor_discord_id: Some(command.from_discord_id),
+                note: None,
                 idempotency_key: credit_key,
             })
             .await
