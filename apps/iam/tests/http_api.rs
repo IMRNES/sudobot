@@ -203,6 +203,49 @@ async fn the_health_check_answers_without_a_token() {
 
 #[tokio::test]
 #[ignore = "needs DATABASE_URL and a migrated database"]
+async fn a_discord_redirect_to_the_api_path_forwards_to_the_dashboard() {
+    let Some(db) = connect().await else { return };
+    let app = mount(state(db).await);
+
+    // Discord redirects with a browser GET and the query it was given. Answering
+    // 405 here would strand a user whose authorization code is already spent, so
+    // the API forwards to the dashboard page that performs the exchange.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/iam/auth/discord/callback?code=abc&state=deadbeef")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        response.status().is_redirection(),
+        "a redirect must be followed, not refused (got {})",
+        response.status()
+    );
+
+    let location = response
+        .headers()
+        .get(header::LOCATION)
+        .expect("a redirect without Location goes nowhere")
+        .to_str()
+        .unwrap();
+
+    assert_eq!(
+        location, "/auth/callback?code=abc&state=deadbeef",
+        "the query is forwarded verbatim: `state` is compared byte for byte"
+    );
+    assert!(
+        location.starts_with('/'),
+        "relative, so it cannot disagree with the host the browser used: {location}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs DATABASE_URL and a migrated database"]
 async fn starting_a_login_needs_no_token() {
     let Some(db) = connect().await else { return };
     let app = mount(state(db).await);

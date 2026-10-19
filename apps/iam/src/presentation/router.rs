@@ -78,7 +78,15 @@ fn protected_routes() -> Router<AppState> {
 fn auth_routes() -> Router<AppState> {
     Router::new()
         .route("/discord/authorize", post(handlers::auth::authorize))
-        .route("/discord/callback", post(handlers::auth::callback))
+        .route(
+            "/discord/callback",
+            // POST exchanges a code the browser already captured; GET is Discord
+            // itself redirecting here. Both exist because the URI registered in the
+            // Developer Portal is the operator's choice, and only Discord can change
+            // it — a redirect aimed at this path must not answer 405 with the code
+            // already spent.
+            get(handlers::auth::callback_redirect).post(handlers::auth::callback),
+        )
         .route("/refresh", post(handlers::auth::refresh))
         .route("/logout", post(handlers::auth::logout))
         .route("/sync-guilds", post(handlers::auth::sync_guilds))

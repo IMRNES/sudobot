@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{RawQuery, State};
+use axum::response::Redirect;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use tracing::{instrument, warn};
@@ -34,6 +35,34 @@ use crate::presentation::state::AppState;
 fn pending_states() -> &'static Mutex<HashMap<String, DateTime<Utc>>> {
     static STATES: OnceLock<Mutex<HashMap<String, DateTime<Utc>>>> = OnceLock::new();
     STATES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Discord's redirect, when the registered URI points at the API instead of the
+/// dashboard.
+///
+/// The exchange itself is `POST /auth/discord/callback`, which the dashboard calls
+/// with the `code` it read from its own URL. That works only if Discord sends the
+/// browser to the dashboard page — but the URI is registered in the Developer
+/// Portal, which only a human can change, and Discord matches it literally. A
+/// deployment whose registration still names this path would otherwise answer the
+/// redirect with `405 Method Not Allowed` *after* the user approved the app, with
+/// the authorization code already spent and no way to retry it.
+///
+/// So this forwards: same query string, one relative hop to the dashboard's own
+/// callback route, which then does the exchange. Relative because the dashboard and
+/// the API share an origin in this deployment, and a relative `Location` cannot be
+/// wrong about the host the browser used.
+#[instrument(skip_all)]
+pub async fn callback_redirect(RawQuery(query): RawQuery) -> Result<Redirect, AppError> {
+    // The query is forwarded verbatim, not rebuilt: `state` is compared byte for
+    // byte against the value the server minted, so re-encoding it here could
+    // change it. `RawQuery` keeps the original bytes.
+    let target = match query {
+        Some(query) if !query.is_empty() => format!("/auth/callback?{query}"),
+        _ => "/auth/callback".to_string(),
+    };
+
+    Ok(Redirect::to(&target))
 }
 
 /// Hands the browser a Discord consent URL.
