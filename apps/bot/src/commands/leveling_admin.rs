@@ -92,12 +92,16 @@ pub async fn sync(
     // Discord's own practical member count for a community server.
     let limit = limit.unwrap_or(1_000).min(5_000) as usize;
 
-    let (examined, grants) = crate::ladder_setup::sync_members(ctx.data(), guild_id, limit).await?;
+    let (examined, grants, revocations) =
+        crate::ladder_setup::sync_members(ctx.data(), guild_id, limit).await?;
 
+    // Both halves are reported: in the replacing configuration most of the work a
+    // reconcile does is taking superseded rungs off, and a summary that counted only
+    // grants would make a successful run look like it found nothing to do.
     let embed = serenity::CreateEmbed::new()
         .title("Level roles reconciled")
         .description(format!(
-            "Examined **{examined}** members and granted **{grants}** reward roles."
+            "Examined **{examined}** members, granted **{grants}** reward roles and removed **{revocations}** superseded ones."
         ))
         .footer(serenity::CreateEmbedFooter::new(
             "A member with no XP profile yet is not examined.",

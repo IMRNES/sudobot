@@ -149,10 +149,11 @@ async fn main() -> Result<()> {
                             // the level-change path, so every deploy reconciles. Level
                             // 0 depends on this: nobody levels up *into* level 0.
                             match ladder_setup::sync_members(&data, guild_id, 5_000).await {
-                                Ok((examined, grants)) => tracing::info!(
+                                Ok((examined, grants, revocations)) => tracing::info!(
                                     guild_id = guild_id.get(),
                                     examined,
                                     grants,
+                                    revocations,
                                     "level reward roles reconciled"
                                 ),
                                 Err(error) => {

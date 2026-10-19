@@ -620,14 +620,14 @@ pub async fn sync_members(
     data: &Data,
     guild_id: serenity::GuildId,
     limit: usize,
-) -> Result<(usize, usize), crate::Error> {
+) -> Result<(usize, usize, usize), crate::Error> {
     let http = data.http();
 
     let config = data.leveling.find_config(guild_id.get()).await?;
     let rewards = data.leveling.list_rewards(guild_id.get()).await?;
 
     if rewards.is_empty() {
-        return Ok((0, 0));
+        return Ok((0, 0, 0));
     }
 
     // Every profile in the guild, so members are placed by their stored level rather
@@ -679,6 +679,7 @@ pub async fn sync_members(
 
     let examined = members.len();
     let mut grants = 0;
+    let mut revocations = 0;
 
     for profile in &profiles {
         // A member with no cached member object cannot have roles read, and guessing
@@ -694,7 +695,7 @@ pub async fn sync_members(
             config.stack_roles,
         );
 
-        if changes.grant.is_empty() {
+        if changes.grant.is_empty() && changes.revoke.is_empty() {
             continue;
         }
 
@@ -704,6 +705,47 @@ pub async fn sync_members(
         else {
             continue;
         };
+
+        // Revocations come first: in the replacing configuration the newest rung is
+        // granted and the older ones come off, and doing the removal second would
+        // leave a member briefly wearing two rungs of a ladder that says they wear
+        // one. Neither order can strand them with nothing, since the grant only
+        // names a rung they have already reached.
+        if !changes.revoke.is_empty() {
+            let stale: Vec<serenity::RoleId> = changes
+                .revoke
+                .iter()
+                .map(|role_id| serenity::RoleId::new(*role_id))
+                .collect();
+
+            match member.remove_roles(&http, &stale).await {
+                Ok(()) => {
+                    revocations += stale.len();
+                    debug!(
+                        guild_id = guild_id.get(),
+                        user_id = profile.discord_user_id,
+                        level = profile.level,
+                        roles = stale.len(),
+                        "removed superseded level role rewards"
+                    );
+                }
+                Err(error) => {
+                    // Not fatal to the grant below: a member left wearing an extra
+                    // rung is worth reporting, but withholding the rung they earned
+                    // would be worse.
+                    warn!(
+                        guild_id = guild_id.get(),
+                        user_id = profile.discord_user_id,
+                        %error,
+                        "could not remove superseded level reward roles"
+                    );
+                }
+            }
+        }
+
+        if changes.grant.is_empty() {
+            continue;
+        }
 
         let roles: Vec<serenity::RoleId> = changes
             .grant
@@ -736,7 +778,7 @@ pub async fn sync_members(
         }
     }
 
-    Ok((examined, grants))
+    Ok((examined, grants, revocations))
 }
 
 /// The rung name a stored level maps to, for a command that reports a member's title.
