@@ -148,6 +148,19 @@ export const guildQueries = {
 			placeholderData: (previous) => previous,
 		}),
 
+	/**
+	 * One panel with its buttons.
+	 *
+	 * The list returns each panel's option *count*, not the options themselves, so
+	 * opening a panel is what fetches its buttons. Same split the API makes.
+	 */
+	panel: (guildId: string, panelId: string) =>
+		queryOptions({
+			queryKey: queryKeys.panels.detail(guildId, panelId),
+			queryFn: ({ signal }) => panelsApi.get(guildId, panelId, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+		}),
+
 	/* -------------------------------------------------------------- autoroles */
 
 	autoroles: (guildId: string, params: IListParams) =>

@@ -173,4 +173,14 @@ impl RolePanelWithOptions {
     pub fn fits_in_one_message(&self) -> bool {
         self.options.len() <= RolePanelOption::MAX_PER_PANEL
     }
+
+    /// Whether this panel can be turned into a Discord message at all.
+    ///
+    /// Two ways it cannot: no buttons, in which case the message would render but
+    /// do nothing when clicked, and more than Discord's 25-component limit. Both
+    /// the use case and the wire render ask this, so they cannot disagree about
+    /// what is publishable.
+    pub fn is_publishable(&self) -> bool {
+        !self.options.is_empty() && self.fits_in_one_message()
+    }
 }

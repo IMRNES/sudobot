@@ -6,7 +6,7 @@ use crate::infrastructure::repository::{
     SeaOrmWelcomeRepository,
 };
 use crate::infrastructure::service::{
-    Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient,
+    Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient, ReqwestRolePanelPublisher,
 };
 use sudobot_config::DashboardAccessConfig;
 
@@ -25,6 +25,14 @@ pub struct AppState {
     pub password_service: Argon2PasswordService,
     pub token_service: JwtTokenService,
     pub oauth_client: ReqwestDiscordOAuthClient,
+
+    /// Posts role panels as the bot.
+    ///
+    /// Separate from `oauth_client` because it uses the bot token rather than the
+    /// caller's: a dashboard visitor has no authority to post as the bot, so
+    /// publishing is the API's own act.
+    pub panel_publisher: ReqwestRolePanelPublisher,
+
     pub clock: SystemClock,
 
     /// The one guild the dashboard serves, plus who may open it.

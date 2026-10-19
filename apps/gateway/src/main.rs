@@ -19,7 +19,7 @@ use iam::infrastructure::repository::{
     SeaOrmWelcomeRepository,
 };
 use iam::infrastructure::service::{
-    Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient,
+    Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient, ReqwestRolePanelPublisher,
 };
 use iam::presentation::{AppState, build_router};
 
@@ -99,6 +99,8 @@ fn build_state(config: &AppConfig, db: DatabaseConnection) -> Result<AppState> {
             Some(config.discord.token().to_string()),
         )
         .context("building the discord client")?,
+        panel_publisher: ReqwestRolePanelPublisher::new(Some(config.discord.token().to_string()))
+            .context("building the panel publisher")?,
         clock: iam::application::ports::SystemClock,
         access: config.access.clone(),
 

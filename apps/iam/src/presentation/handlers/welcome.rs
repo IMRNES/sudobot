@@ -272,7 +272,12 @@ pub async fn delete_option(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Records where the bot posted a panel.
+/// Posts a panel to a Discord channel and records where it landed.
+///
+/// The message id is not a request field: the API posts with the bot token and gets
+/// one back. It used to require the caller to supply both ids, which meant the
+/// dashboard could only ever record a message somebody else had posted — so no
+/// panel was ever actually posted anywhere.
 #[instrument(skip_all, fields(actor = %actor.id, guild = %guild_id, panel = %panel_id))]
 pub async fn publish_panel(
     State(state): State<AppState>,
@@ -284,13 +289,13 @@ pub async fn publish_panel(
     let panel_id = parse_uuid(&panel_id, "panelId")?;
     authorize(&state, actor.id, guild_id, "autorole:write").await?;
 
-    let use_case = PublishRolePanelUseCase::new(state.welcome.clone());
+    let use_case =
+        PublishRolePanelUseCase::new(state.welcome.clone(), state.panel_publisher.clone());
     let panel = use_case
         .execute(
             guild_id,
             panel_id,
             parse_snowflake(&request.channel_id, "channel_id")?,
-            parse_snowflake(&request.message_id, "message_id")?,
         )
         .await?;
 

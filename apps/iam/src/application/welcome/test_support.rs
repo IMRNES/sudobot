@@ -263,3 +263,121 @@ impl WelcomeRepository for FakeWelcome {
             .count())
     }
 }
+
+/// A publisher that records what it was asked to post instead of talking to
+/// Discord.
+///
+/// The publish use case's whole job is "post, then record where it landed", so the
+/// test has to be able to see both halves: which call was made (post versus edit)
+/// and which ids came back.
+#[derive(Debug, Default)]
+pub struct FakePublisherState {
+    /// `None` for a post, `Some(message_id)` for an edit.
+    pub calls: Vec<FakePublishCall>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FakePublishCall {
+    Post {
+        channel_id: u64,
+        options: usize,
+    },
+    Edit {
+        channel_id: u64,
+        message_id: u64,
+        options: usize,
+    },
+}
+
+/// The fake publisher, with the calls it recorded.
+#[derive(Clone)]
+pub struct FakePublisher {
+    pub calls: Arc<Mutex<Vec<FakePublishCall>>>,
+    /// The message id a post reports; a real Discord assigns one.
+    pub next_message_id: Arc<Mutex<u64>>,
+    pub configured: bool,
+}
+
+impl Default for FakePublisher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FakePublisher {
+    pub fn new() -> Self {
+        Self {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            next_message_id: Arc::new(Mutex::new(1000)),
+            configured: true,
+        }
+    }
+
+    /// A publisher with no bot token, which is the unconfigured installation.
+    pub fn unconfigured() -> Self {
+        Self {
+            configured: false,
+            ..Self::new()
+        }
+    }
+
+    pub fn calls(&self) -> Vec<FakePublishCall> {
+        self.calls
+            .lock()
+            .map(|calls| calls.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl crate::application::ports::RolePanelPublisher for FakePublisher {
+    fn is_configured(&self) -> bool {
+        self.configured
+    }
+
+    async fn post(
+        &self,
+        channel_id: u64,
+        panel: &RolePanelWithOptions,
+    ) -> Result<u64, crate::application::ports::PanelPublishError> {
+        if !self.configured {
+            return Err(crate::application::ports::PanelPublishError::NotConfigured);
+        }
+
+        self.calls
+            .lock()
+            .map_err(|_| crate::application::ports::PanelPublishError::Api("poisoned".into()))?
+            .push(FakePublishCall::Post {
+                channel_id,
+                options: panel.options.len(),
+            });
+
+        let mut next = self
+            .next_message_id
+            .lock()
+            .map_err(|_| crate::application::ports::PanelPublishError::Api("poisoned".into()))?;
+        *next += 1;
+        Ok(*next)
+    }
+
+    async fn edit(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        panel: &RolePanelWithOptions,
+    ) -> Result<(), crate::application::ports::PanelPublishError> {
+        if !self.configured {
+            return Err(crate::application::ports::PanelPublishError::NotConfigured);
+        }
+
+        self.calls
+            .lock()
+            .map_err(|_| crate::application::ports::PanelPublishError::Api("poisoned".into()))?
+            .push(FakePublishCall::Edit {
+                channel_id,
+                message_id,
+                options: panel.options.len(),
+            });
+
+        Ok(())
+    }
+}

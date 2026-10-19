@@ -29,8 +29,19 @@ pub enum WelcomeError {
     #[error("a panel cannot be published without a channel")]
     MissingChannel,
 
+    #[error("a role panel needs at least one button before it can be posted")]
+    EmptyPanel,
+
     #[error("this option's role is not assignable by the bot in that guild")]
     RoleNotAssignable(u64),
+
+    /// Discord refused the message, or this installation cannot write one.
+    ///
+    /// Flattened to a string because the caller only ever renders it: the status
+    /// code is decided by [`crate::presentation::AppError`], and the presentation
+    /// layer has no business knowing about `reqwest`.
+    #[error("could not post the panel: {0}")]
+    Publisher(String),
 
     #[error(transparent)]
     Repository(#[from] RepositoryError),

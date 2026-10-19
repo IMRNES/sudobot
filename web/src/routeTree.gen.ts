@@ -19,6 +19,7 @@ import { Route as AuthenticatedGuildSlugAutorolesRouteImport } from './routes/_a
 import { Route as AuthenticatedGuildSlugEconomyRouteImport } from './routes/_authenticated/$guildSlug/economy'
 import { Route as AuthenticatedGuildSlugLevelingRouteImport } from './routes/_authenticated/$guildSlug/leveling'
 import { Route as AuthenticatedGuildSlugMembersRouteImport } from './routes/_authenticated/$guildSlug/members'
+import { Route as AuthenticatedGuildSlugPanelsRouteImport } from './routes/_authenticated/$guildSlug/panels'
 import { Route as AuthenticatedGuildSlugRolesRouteImport } from './routes/_authenticated/$guildSlug/roles'
 import { Route as AuthenticatedGuildSlugSettingsRouteImport } from './routes/_authenticated/$guildSlug/settings'
 import { Route as AuthenticatedGuildSlugWelcomeRouteImport } from './routes/_authenticated/$guildSlug/welcome'
@@ -77,6 +78,12 @@ const AuthenticatedGuildSlugMembersRoute =
     path: '/members',
     getParentRoute: () => AuthenticatedGuildSlugRoute,
   } as any)
+const AuthenticatedGuildSlugPanelsRoute =
+  AuthenticatedGuildSlugPanelsRouteImport.update({
+    id: '/panels',
+    path: '/panels',
+    getParentRoute: () => AuthenticatedGuildSlugRoute,
+  } as any)
 const AuthenticatedGuildSlugRolesRoute =
   AuthenticatedGuildSlugRolesRouteImport.update({
     id: '/roles',
@@ -109,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/$guildSlug/economy': typeof AuthenticatedGuildSlugEconomyRoute
   '/$guildSlug/leveling': typeof AuthenticatedGuildSlugLevelingRoute
   '/$guildSlug/members': typeof AuthenticatedGuildSlugMembersRoute
+  '/$guildSlug/panels': typeof AuthenticatedGuildSlugPanelsRoute
   '/$guildSlug/roles': typeof AuthenticatedGuildSlugRolesRoute
   '/$guildSlug/settings': typeof AuthenticatedGuildSlugSettingsRoute
   '/$guildSlug/welcome': typeof AuthenticatedGuildSlugWelcomeRoute
@@ -122,6 +130,7 @@ export interface FileRoutesByTo {
   '/$guildSlug/economy': typeof AuthenticatedGuildSlugEconomyRoute
   '/$guildSlug/leveling': typeof AuthenticatedGuildSlugLevelingRoute
   '/$guildSlug/members': typeof AuthenticatedGuildSlugMembersRoute
+  '/$guildSlug/panels': typeof AuthenticatedGuildSlugPanelsRoute
   '/$guildSlug/roles': typeof AuthenticatedGuildSlugRolesRoute
   '/$guildSlug/settings': typeof AuthenticatedGuildSlugSettingsRoute
   '/$guildSlug/welcome': typeof AuthenticatedGuildSlugWelcomeRoute
@@ -139,6 +148,7 @@ export interface FileRoutesById {
   '/_authenticated/$guildSlug/economy': typeof AuthenticatedGuildSlugEconomyRoute
   '/_authenticated/$guildSlug/leveling': typeof AuthenticatedGuildSlugLevelingRoute
   '/_authenticated/$guildSlug/members': typeof AuthenticatedGuildSlugMembersRoute
+  '/_authenticated/$guildSlug/panels': typeof AuthenticatedGuildSlugPanelsRoute
   '/_authenticated/$guildSlug/roles': typeof AuthenticatedGuildSlugRolesRoute
   '/_authenticated/$guildSlug/settings': typeof AuthenticatedGuildSlugSettingsRoute
   '/_authenticated/$guildSlug/welcome': typeof AuthenticatedGuildSlugWelcomeRoute
@@ -155,6 +165,7 @@ export interface FileRouteTypes {
     | '/$guildSlug/economy'
     | '/$guildSlug/leveling'
     | '/$guildSlug/members'
+    | '/$guildSlug/panels'
     | '/$guildSlug/roles'
     | '/$guildSlug/settings'
     | '/$guildSlug/welcome'
@@ -168,6 +179,7 @@ export interface FileRouteTypes {
     | '/$guildSlug/economy'
     | '/$guildSlug/leveling'
     | '/$guildSlug/members'
+    | '/$guildSlug/panels'
     | '/$guildSlug/roles'
     | '/$guildSlug/settings'
     | '/$guildSlug/welcome'
@@ -184,6 +196,7 @@ export interface FileRouteTypes {
     | '/_authenticated/$guildSlug/economy'
     | '/_authenticated/$guildSlug/leveling'
     | '/_authenticated/$guildSlug/members'
+    | '/_authenticated/$guildSlug/panels'
     | '/_authenticated/$guildSlug/roles'
     | '/_authenticated/$guildSlug/settings'
     | '/_authenticated/$guildSlug/welcome'
@@ -269,6 +282,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedGuildSlugMembersRouteImport
       parentRoute: typeof AuthenticatedGuildSlugRoute
     }
+    '/_authenticated/$guildSlug/panels': {
+      id: '/_authenticated/$guildSlug/panels'
+      path: '/panels'
+      fullPath: '/$guildSlug/panels'
+      preLoaderRoute: typeof AuthenticatedGuildSlugPanelsRouteImport
+      parentRoute: typeof AuthenticatedGuildSlugRoute
+    }
     '/_authenticated/$guildSlug/roles': {
       id: '/_authenticated/$guildSlug/roles'
       path: '/roles'
@@ -305,6 +325,7 @@ interface AuthenticatedGuildSlugRouteChildren {
   AuthenticatedGuildSlugEconomyRoute: typeof AuthenticatedGuildSlugEconomyRoute
   AuthenticatedGuildSlugLevelingRoute: typeof AuthenticatedGuildSlugLevelingRoute
   AuthenticatedGuildSlugMembersRoute: typeof AuthenticatedGuildSlugMembersRoute
+  AuthenticatedGuildSlugPanelsRoute: typeof AuthenticatedGuildSlugPanelsRoute
   AuthenticatedGuildSlugRolesRoute: typeof AuthenticatedGuildSlugRolesRoute
   AuthenticatedGuildSlugSettingsRoute: typeof AuthenticatedGuildSlugSettingsRoute
   AuthenticatedGuildSlugWelcomeRoute: typeof AuthenticatedGuildSlugWelcomeRoute
@@ -317,6 +338,7 @@ const AuthenticatedGuildSlugRouteChildren: AuthenticatedGuildSlugRouteChildren =
     AuthenticatedGuildSlugEconomyRoute: AuthenticatedGuildSlugEconomyRoute,
     AuthenticatedGuildSlugLevelingRoute: AuthenticatedGuildSlugLevelingRoute,
     AuthenticatedGuildSlugMembersRoute: AuthenticatedGuildSlugMembersRoute,
+    AuthenticatedGuildSlugPanelsRoute: AuthenticatedGuildSlugPanelsRoute,
     AuthenticatedGuildSlugRolesRoute: AuthenticatedGuildSlugRolesRoute,
     AuthenticatedGuildSlugSettingsRoute: AuthenticatedGuildSlugSettingsRoute,
     AuthenticatedGuildSlugWelcomeRoute: AuthenticatedGuildSlugWelcomeRoute,

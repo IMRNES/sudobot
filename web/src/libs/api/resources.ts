@@ -15,7 +15,9 @@ import type {
 	IPanelCreateRequest,
 	IPanelOptionCreateRequest,
 	IPanelOptionResponse,
+	IPanelPublishRequest,
 	IPanelResponse,
+	IPanelSummaryResponse,
 	IPermissionResponse,
 	IRewardCreateRequest,
 	IRewardResponse,
@@ -192,7 +194,7 @@ export const welcomeApi = {
 
 export const panelsApi = {
 	list: (guildId: string, params: IListParams = {}, options: TSignal = {}) =>
-		api.list<IPanelResponse>(`/guilds/${guildId}/panels`, params, options),
+		api.list<IPanelSummaryResponse>(`/guilds/${guildId}/panels`, params, options),
 
 	create: (guildId: string, body: IPanelCreateRequest) =>
 		api.post<IPanelResponse>(`/guilds/${guildId}/panels`, { body }),
@@ -210,8 +212,16 @@ export const panelsApi = {
 	deleteOption: (guildId: string, panelId: string, optionId: string) =>
 		api.delete<null>(`/guilds/${guildId}/panels/${panelId}/options/${optionId}`),
 
-	publish: (guildId: string, panelId: string) =>
-		api.post<IPanelResponse>(`/guilds/${guildId}/panels/${panelId}/publish`, {}),
+	/**
+	 * Records where the bot posted a panel.
+	 *
+	 * The ids come from the bot, not from this call: the API only stores them so a
+	 * later edit targets the same message instead of posting a second one. Sending
+	 * an empty body — which this used to do — is a 400, because both ids are
+	 * required.
+	 */
+	publish: (guildId: string, panelId: string, body: IPanelPublishRequest) =>
+		api.post<IPanelResponse>(`/guilds/${guildId}/panels/${panelId}/publish`, { body }),
 }
 
 /* -------------------------------------------------------------------------- */

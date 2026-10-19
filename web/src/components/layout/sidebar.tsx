@@ -3,6 +3,7 @@ import {
 	Coins,
 	Gauge,
 	LayoutDashboard,
+	MousePointerClick,
 	ScrollText,
 	Settings,
 	ShieldCheck,
@@ -35,6 +36,7 @@ const GUILD_NAV: INavItem[] = [
 	{ label: "Members", segment: "members", icon: Users, permission: "members:read" },
 	{ label: "Roles", segment: "roles", icon: ShieldCheck, permission: "roles:read" },
 	{ label: "Welcome", segment: "welcome", icon: Sparkles, permission: "welcome:read" },
+	{ label: "Role panels", segment: "panels", icon: MousePointerClick, permission: "autorole:read" },
 	{ label: "Autoroles", segment: "autoroles", icon: UserPlus, permission: "autorole:read" },
 	{ label: "Settings", segment: "settings", icon: Settings, permission: "dashboard:manage" },
 ]

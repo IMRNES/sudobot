@@ -8,7 +8,9 @@ use super::panels::{
     AddPanelOptionCommand, AddPanelOptionUseCase, PublishRolePanelUseCase, ResolvePanelButtonQuery,
     ResolvePanelButtonUseCase, UpsertRolePanelCommand, UpsertRolePanelUseCase,
 };
-use super::test_support::{FakeWelcome, option, panel, seed_config, seed_panel, store};
+use super::test_support::{
+    FakePublishCall, FakePublisher, FakeWelcome, option, panel, seed_config, seed_panel, store,
+};
 use crate::domain::welcome::{RolePanelOption, WelcomeConfig, WelcomeError};
 
 const GUILD: u64 = 1;
@@ -371,23 +373,117 @@ async fn a_button_on_a_deleted_panel_is_none_not_an_error() {
 }
 
 #[tokio::test]
-async fn publishing_records_the_message_it_targets() {
+async fn publishing_posts_a_message_and_records_where_it_landed() {
     let store = store();
     let panel = panel(GUILD, "self-roles");
     let panel_id = panel.id;
     seed_panel(&store, panel, vec![option(panel_id, GUILD, 0, 456)]);
 
-    let use_case = PublishRolePanelUseCase::new(FakeWelcome::new(store));
+    let publisher = FakePublisher::new();
+    let use_case = PublishRolePanelUseCase::new(FakeWelcome::new(store), publisher.clone());
 
     let published = use_case
-        .execute(GUILD, panel_id, 777, 888)
+        .execute(GUILD, panel_id, 777)
         .await
-        .expect("the panel has a channel and a title");
+        .expect("the panel has a button and a channel");
 
     assert!(published.panel.is_published);
     assert_eq!(published.panel.channel_id, Some(777));
-    assert_eq!(published.panel.message_id, Some(888));
+    // The message id comes from Discord, not from the caller.
+    assert_eq!(published.panel.message_id, Some(1001));
     assert_eq!(published.options.len(), 1);
+
+    assert_eq!(
+        publisher.calls(),
+        vec![FakePublishCall::Post {
+            channel_id: 777,
+            options: 1,
+        }]
+    );
+}
+
+/// Publishing twice must edit the message that exists rather than post a second
+/// one: an admin fixing a label would otherwise leave two panels in the channel.
+#[tokio::test]
+async fn publishing_an_already_published_panel_edits_it() {
+    let store = store();
+    let panel = panel(GUILD, "self-roles");
+    let panel_id = panel.id;
+    seed_panel(&store, panel, vec![option(panel_id, GUILD, 0, 456)]);
+
+    let publisher = FakePublisher::new();
+    let use_case = PublishRolePanelUseCase::new(FakeWelcome::new(store), publisher.clone());
+
+    let first = use_case
+        .execute(GUILD, panel_id, 777)
+        .await
+        .expect("posted");
+    let second = use_case
+        .execute(GUILD, panel_id, 777)
+        .await
+        .expect("edited");
+
+    assert_eq!(
+        first.panel.message_id, second.panel.message_id,
+        "the same message is rewritten"
+    );
+    assert_eq!(
+        publisher.calls(),
+        vec![
+            FakePublishCall::Post {
+                channel_id: 777,
+                options: 1,
+            },
+            FakePublishCall::Edit {
+                channel_id: 777,
+                message_id: first.panel.message_id.expect("recorded"),
+                options: 1,
+            },
+        ]
+    );
+}
+
+/// A panel with no buttons would post an empty message that does nothing when a
+/// member clicks it, so it is refused before Discord sees it.
+#[tokio::test]
+async fn publishing_a_panel_without_buttons_is_refused() {
+    let store = store();
+    let panel = panel(GUILD, "self-roles");
+    let panel_id = panel.id;
+    seed_panel(&store, panel, vec![]);
+
+    let publisher = FakePublisher::new();
+    let use_case = PublishRolePanelUseCase::new(FakeWelcome::new(store), publisher.clone());
+
+    let error = use_case
+        .execute(GUILD, panel_id, 777)
+        .await
+        .expect_err("an empty panel is not postable");
+
+    assert!(matches!(error, WelcomeError::EmptyPanel));
+    assert!(
+        publisher.calls().is_empty(),
+        "nothing reaches Discord when the panel is unpublishable"
+    );
+}
+
+/// Without a bot token the publish cannot work, and saying so is better than a 500.
+#[tokio::test]
+async fn publishing_without_a_token_reports_an_unavailable_installation() {
+    let store = store();
+    let panel = panel(GUILD, "self-roles");
+    let panel_id = panel.id;
+    seed_panel(&store, panel, vec![option(panel_id, GUILD, 0, 456)]);
+
+    let use_case =
+        PublishRolePanelUseCase::new(FakeWelcome::new(store), FakePublisher::unconfigured());
+
+    let error = use_case
+        .execute(GUILD, panel_id, 777)
+        .await
+        .expect_err("no token, no publish");
+
+    assert!(matches!(error, WelcomeError::Publisher(_)));
 }
 
 #[tokio::test]

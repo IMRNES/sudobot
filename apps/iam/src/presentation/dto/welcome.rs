@@ -219,13 +219,15 @@ pub struct AddPanelOptionRequest {
     pub behavior: Option<String>,
 }
 
-/// Records where the bot posted a panel.
+/// Where to post a role panel.
+///
+/// One field, because posting is the API's job: the bot token lives here, so this
+/// asks for the destination and nothing else. `message_id` used to be required,
+/// which made the endpoint a record of somebody else's work and never a publish.
 #[derive(Debug, Deserialize, ZodSchema)]
 pub struct PublishPanelRequest {
     #[zod(min_length(1), max_length(32))]
     pub channel_id: String,
-    #[zod(min_length(1), max_length(32))]
-    pub message_id: String,
 }
 
 crate::validated_request!(UpsertPanelRequest);

@@ -12,6 +12,12 @@ pub struct Data {
     pub leveling: iam::infrastructure::repository::SeaOrmLevelingRepository,
     pub economy: iam::infrastructure::repository::SeaOrmEconomyRepository,
     pub welcome: iam::infrastructure::repository::SeaOrmWelcomeRepository,
+    /// Posts role panels as the bot.
+    ///
+    /// The same publisher the API uses, so `/rolepanel post` and the dashboard write
+    /// the identical message. Holds the token it was built with, so it needs no
+    /// access to `http` above.
+    pub panel_publisher: iam::infrastructure::service::ReqwestRolePanelPublisher,
     pub clock: iam::application::ports::SystemClock,
     /// Guild to register slash commands to during development, for instant updates.
     pub dev_guild_id: Option<u64>,
@@ -52,6 +58,13 @@ impl Data {
             leveling: SeaOrmLevelingRepository::new(db.clone()),
             economy: SeaOrmEconomyRepository::new(db.clone()),
             welcome: SeaOrmWelcomeRepository::new(db.clone()),
+            // Built once with the token the process already has, rather than
+            // reaching through `http`: the publisher needs a reqwest client of its
+            // own so it can set a timeout and a user agent.
+            panel_publisher: iam::infrastructure::service::ReqwestRolePanelPublisher::new(Some(
+                token.to_string(),
+            ))
+            .expect("building the panel publisher"),
             clock: iam::application::ports::SystemClock,
             dev_guild_id,
             provision_guild_id,

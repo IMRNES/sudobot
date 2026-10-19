@@ -283,8 +283,13 @@ impl From<WelcomeError> for AppError {
             | WelcomeError::UnknownPlaceholder(_)
             | WelcomeError::TooManyOptions(_)
             | WelcomeError::UnknownBehavior(_)
+            | WelcomeError::EmptyPanel
             | WelcomeError::MissingChannel => Self::BadRequest(error.to_string()),
             WelcomeError::RoleNotAssignable(_) => Self::Conflict(error.to_string()),
+            // The installation cannot post, or Discord refused: the caller did
+            // nothing wrong and retrying the same request will not help until the
+            // configuration or the channel changes.
+            WelcomeError::Publisher(_) => Self::Unavailable(error.to_string()),
             WelcomeError::Repository(inner) => inner.into(),
         }
     }

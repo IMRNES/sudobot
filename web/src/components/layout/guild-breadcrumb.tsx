@@ -15,6 +15,7 @@ const LABELS: Record<string, string> = {
 	members: "Members",
 	roles: "Roles",
 	welcome: "Welcome",
+	panels: "Role panels",
 	autoroles: "Autoroles",
 	settings: "Settings",
 }

@@ -340,6 +340,33 @@ export interface IPanelResponse {
 	options: IPanelOptionResponse[]
 }
 
+/**
+ * A panel as the *list* route returns it.
+ *
+ * Deliberately not `IPanelResponse`: the list carries `option_count` instead of the
+ * options themselves, because a guild's panels are listed to be chosen from, not
+ * rendered. Fetching one is what returns its buttons.
+ */
+export interface IPanelSummaryResponse {
+	id: string
+	slug: string
+	title: string
+	channel_id: string | null
+	is_published: boolean
+	option_count: number
+}
+
+export interface IPanelPublishRequest {
+	/**
+	 * The channel to post the panel into.
+	 *
+	 * Nothing else: the API posts with the bot token and records the message id it
+	 * gets back. Sending a message id was never a publish — it only recorded a
+	 * message somebody else had already posted.
+	 */
+	channel_id: string
+}
+
 export interface IPanelCreateRequest {
 	slug: string
 	title: string

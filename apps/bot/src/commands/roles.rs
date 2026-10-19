@@ -1,16 +1,19 @@
 use poise::serenity_prelude as serenity;
 
 use iam::application::autorole::ListAutoRolesUseCase;
-use iam::application::welcome::ListRolePanelsUseCase;
+use iam::application::welcome::{
+    GetRolePanelUseCase, ListRolePanelsUseCase, PublishRolePanelUseCase,
+};
 
 use crate::{Context, Error};
 
 /// Point members at the dashboard, where the real configuration lives.
 ///
-/// Read-only on purpose. These commands exist so a member can discover what the
-/// server offers without an admin having to tell them; every button an admin would
-/// press belongs on the dashboard, where it can be reviewed before it is saved.
-#[poise::command(slash_command, guild_only, subcommands("panels", "autoroles"))]
+/// Read-only on purpose, with two exceptions: `post` writes the panel message,
+/// because that is a Discord-side action only the bot can perform. Everything an
+/// admin would *edit* stays on the dashboard, where it can be reviewed before it is
+/// saved.
+#[poise::command(slash_command, guild_only, subcommands("panels", "post", "autoroles"))]
 pub async fn rolepanel(_ctx: Context<'_>) -> Result<(), Error> {
     // Never invoked: Discord refuses to run a parent command with subcommands.
     Ok(())
@@ -25,27 +28,25 @@ pub async fn panels(ctx: Context<'_>) -> Result<(), Error> {
     let use_case = ListRolePanelsUseCase::new(ctx.data().welcome.clone());
     let panels = use_case.execute(guild_id.get()).await?;
 
-    let published: Vec<_> = panels
-        .into_iter()
-        .filter(|(panel, _)| panel.is_published)
-        .collect();
-
-    if published.is_empty() {
+    if panels.is_empty() {
         ctx.say("This server has no role panels yet.").await?;
         return Ok(());
     }
 
-    let lines = published
+    let lines = panels
         .iter()
         .map(|(panel, option_count)| {
-            let channel = match panel.channel_id {
-                Some(channel_id) => format!("<#{channel_id}>"),
-                None => "an unset channel".to_string(),
+            // The slug is what `post` takes, so it is the identifier shown here.
+            let state = if panel.is_published {
+                "published"
+            } else {
+                "draft"
             };
 
             format!(
-                "**{}** — {} option{} in {channel}",
+                "**{}** (`{}`) — {} option{}, {state}",
                 panel.title,
+                panel.slug,
                 option_count,
                 if *option_count == 1 { "" } else { "s" }
             )
@@ -59,6 +60,57 @@ pub async fn panels(ctx: Context<'_>) -> Result<(), Error> {
         .colour(0x3498DB);
 
     ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    Ok(())
+}
+
+/// Post a panel's buttons into this channel.
+///
+/// This is the only way a panel reaches Discord. `PublishRolePanelUseCase` holds the
+/// bot token through the API's publisher, and the same use case runs here, so the
+/// message the bot writes is the one the dashboard records — and re-running this
+/// edits it in place instead of posting a second copy.
+#[poise::command(slash_command, guild_only, default_member_permissions = "MANAGE_ROLES")]
+pub async fn post(
+    ctx: Context<'_>,
+    #[description = "The panel's slug, as shown by /rolepanel panels"] slug: String,
+) -> Result<(), Error> {
+    let guild_id = super::require_guild(ctx)?;
+    let channel_id = ctx.channel_id();
+    ctx.defer().await?;
+
+    // Resolved by slug first: an admin knows the slug, not the UUID, and the API's
+    // publish route takes an id.
+    let lookup = GetRolePanelUseCase::new(ctx.data().welcome.clone());
+    let panel = lookup.execute(guild_id.get(), &slug).await?;
+
+    let use_case = PublishRolePanelUseCase::new(
+        ctx.data().welcome.clone(),
+        ctx.data().panel_publisher.clone(),
+    );
+
+    let published = use_case
+        .execute(guild_id.get(), panel.panel.id, channel_id.get())
+        .await?;
+
+    let message = match published.panel.message_id {
+        Some(message_id) => format!(
+            "Posted **{}** with {} button{} in <#{}>: <https://discord.com/channels/{}/{}/{}>",
+            published.panel.title,
+            published.options.len(),
+            if published.options.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
+            channel_id,
+            guild_id,
+            channel_id,
+            message_id
+        ),
+        None => format!("Posted **{}**.", published.panel.title),
+    };
+
+    ctx.say(message).await?;
     Ok(())
 }
 

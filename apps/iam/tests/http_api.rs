@@ -36,7 +36,7 @@ use iam::infrastructure::repository::{
     SeaOrmWelcomeRepository,
 };
 use iam::infrastructure::service::{
-    Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient,
+    Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient, ReqwestRolePanelPublisher,
 };
 use iam::presentation::{AppState, build_router};
 use sudobot_config::DashboardAccessConfig;
@@ -99,6 +99,8 @@ async fn state(db: DatabaseConnection) -> AppState {
             Some("test-bot-token".to_string()),
         )
         .expect("the discord client builds"),
+        // No token, so a publish test cannot accidentally post to a real channel.
+        panel_publisher: ReqwestRolePanelPublisher::new(None).expect("the publisher builds"),
         clock: SystemClock,
         access: Some(access),
 

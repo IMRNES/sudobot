@@ -1,6 +1,7 @@
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
+use crate::application::ports::{PanelPublishError, RolePanelPublisher};
 use crate::domain::errors::{Page, PaginationParams};
 use crate::domain::welcome::{
     RolePanel, RolePanelOption, RolePanelWithOptions, WelcomeError, WelcomeRepository,
@@ -273,26 +274,33 @@ impl<W: WelcomeRepository> DeletePanelOptionUseCase<W> {
     }
 }
 
-/// Records where the bot posted a panel.
-pub struct PublishRolePanelUseCase<W> {
+/// Posts a panel to Discord and records where it landed.
+///
+/// The use case owns the whole operation rather than splitting it: posting and
+/// recording have to agree, and a caller that could do one without the other would
+/// eventually post twice. Re-publishing an already-published panel *edits* the
+/// existing message, so an admin fixing a button does not leave a second copy in
+/// the channel.
+pub struct PublishRolePanelUseCase<W, P> {
     welcome: W,
+    publisher: P,
 }
 
-impl<W: WelcomeRepository> PublishRolePanelUseCase<W> {
-    pub fn new(welcome: W) -> Self {
-        Self { welcome }
+impl<W: WelcomeRepository, P: RolePanelPublisher> PublishRolePanelUseCase<W, P> {
+    pub fn new(welcome: W, publisher: P) -> Self {
+        Self { welcome, publisher }
     }
 
-    /// The panel is postable iff `panel.is_postable()` — a channel and a title.
-    /// The channel and message ids come from the caller because it is the bot that
-    /// talked to Discord; this use case only records the result, so a later edit
-    /// can target the same message instead of posting a second one.
+    /// Posts (or edits) the panel and stores the resulting ids.
+    ///
+    /// The channel comes from the request rather than the stored panel so an admin
+    /// can move a panel to another channel; whatever they pass becomes the recorded
+    /// channel, so the next publish edits there.
     pub async fn execute(
         &self,
         guild_id: u64,
         panel_id: Uuid,
         channel_id: u64,
-        message_id: u64,
     ) -> Result<RolePanelWithOptions, WelcomeError> {
         let existing = self
             .welcome
@@ -301,16 +309,43 @@ impl<W: WelcomeRepository> PublishRolePanelUseCase<W> {
             .filter(|panel| panel.panel.guild_id == guild_id)
             .ok_or(WelcomeError::PanelNotFound)?;
 
-        // The recorded channel wins for the postability check below: the bot has
-        // already posted somewhere, and refusing now would leave the database
-        // disagreeing with Discord.
-        let mut panel = existing.panel.clone();
-        panel.channel_id = Some(channel_id);
+        // The buttons are rendered with the panel, so a publish always posts what
+        // the database currently holds rather than what the browser last saw.
+        let options = self.welcome.list_options(panel_id).await?;
+        let rendered = RolePanelWithOptions {
+            panel: existing.panel.clone(),
+            options,
+        };
 
-        if !panel.is_postable() {
-            warn!(panel_id = %panel_id, "refused to publish a panel that is not postable");
-            return Err(WelcomeError::MissingChannel);
+        // Refused before Discord sees it: an empty panel would post a message that
+        // does nothing, and the API would report success.
+        if !rendered.is_publishable() {
+            return Err(if rendered.options.is_empty() {
+                WelcomeError::EmptyPanel
+            } else {
+                WelcomeError::TooManyOptions(
+                    rendered.options.len() - RolePanelOption::MAX_PER_PANEL,
+                )
+            });
         }
+
+        let message_id = match existing.panel.message_id {
+            // Already posted: rewrite in place. `None` from Discord means the message
+            // is gone, in which case the edit fails and the caller sees it rather
+            // than silently ending up with no panel.
+            Some(message_id) => {
+                self.publisher
+                    .edit(channel_id, message_id, &rendered)
+                    .await
+                    .map_err(publish_error)?;
+                message_id
+            }
+            None => self
+                .publisher
+                .post(channel_id, &rendered)
+                .await
+                .map_err(publish_error)?,
+        };
 
         let panel = self
             .welcome
@@ -322,11 +357,22 @@ impl<W: WelcomeRepository> PublishRolePanelUseCase<W> {
             panel_id = %panel.id,
             channel_id,
             message_id,
+            options = rendered.options.len(),
             "role panel published"
         );
 
         let options = self.welcome.list_options(panel.id).await?;
         Ok(RolePanelWithOptions { panel, options })
+    }
+}
+
+/// A publish failure is the installation's problem unless the panel itself is at
+/// fault, so the two are separated: an unconfigured bot token is `Unavailable`
+/// (retrying will not help), and an unpublishable panel is the panel's own error.
+fn publish_error(error: PanelPublishError) -> WelcomeError {
+    match error {
+        PanelPublishError::Invalid(inner) => inner,
+        other => WelcomeError::Publisher(other.to_string()),
     }
 }
 
