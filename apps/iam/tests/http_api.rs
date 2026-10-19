@@ -21,7 +21,6 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use chrono::Utc;
 use sea_orm::{ConnectOptions, Database as SeaDatabase, DatabaseConnection};
 use std::time::Duration;
 use tower::ServiceExt;
@@ -109,8 +108,10 @@ async fn seed_user(users: &SeaOrmUserRepository, is_platform_admin: bool) -> Uui
     let user = users
         .create(NewUser {
             id: Uuid::new_v4(),
-            // Unique per call, derived from the clock's sub-second part.
-            discord_id: 700_000_000_000_000_000 + u64::from(Utc::now().timestamp_subsec_micros()),
+            // Unique per call. Counter-based rather than clock-based: parallel
+            // tests reading the same microsecond would otherwise collide, and the
+            // failure lands as an unrelated "already exists" conflict.
+            discord_id: unique_discord_id(),
             username: "http-test".to_string(),
             global_name: None,
             avatar_url: None,
@@ -132,9 +133,44 @@ async fn seed_user(users: &SeaOrmUserRepository, is_platform_admin: bool) -> Uui
     }
 }
 
+/// A per-call unique id in the `base` namespace.
+///
+/// Two requirements, and a naive answer fails one of them:
+///
+/// * **Within a run** the tests execute in parallel threads, so a clock read is
+///   not enough — two threads can read the same microsecond and produce the same
+///   value. An atomic counter supplies this half.
+/// * **Across runs** the database is not reset between invocations, so a counter
+///   alone restarts at zero and collides with the previous run's rows. A clock
+///   reading supplies that half.
+///
+/// So both: the counter for the current run, the clock for the current run's
+/// identity. The failure this prevents is nasty to debug — the collision surfaces
+/// as an unrelated "already exists" conflict in whichever test happens to lose the
+/// race, never in the helper that caused it.
+fn unique_id(base: u64) -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    let step = NEXT.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos() as u64);
+
+    // `nanos` scaled clear of the counter's range so the two fields cannot
+    // overlap: the low six digits belong to the counter, the rest to the clock.
+    base + (nanos % 1_000_000) * 1_000_000 + (step % 1_000_000)
+}
+
 /// A guild id nothing else in the suite uses.
 fn unique_guild_id() -> u64 {
-    800_000_000_000_000_000 + u64::from(Utc::now().timestamp_subsec_micros())
+    unique_id(800_000_000_000_000_000)
+}
+
+/// A Discord id for a seeded account, unique for the same reason.
+fn unique_discord_id() -> u64 {
+    unique_id(700_000_000_000_000_000)
 }
 
 /// Creates a guild with the bot present.
