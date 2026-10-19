@@ -64,15 +64,23 @@ impl<W: WelcomeRepository> GetRolePanelUseCase<W> {
             .ok_or(WelcomeError::PanelNotFound)
     }
 
-    /// The same panel, addressed by id, for the paths that have no slug (a
-    /// button press, or the redirect after adding an option).
+    /// The same panel, addressed by id, for the paths that have no slug (a button
+    /// press, or the redirect after adding an option).
+    ///
+    /// Takes the guild and filters on it. An id alone is not a tenancy boundary:
+    /// `/{guild_id}/panels/{panel_id}` authorises against the *path's* guild, so a
+    /// read that ignored it would hand back a panel belonging to another guild to
+    /// anyone who guessed a UUID. The write on the same path was already scoped,
+    /// which made the response the only leak.
     pub async fn execute_by_id(
         &self,
+        guild_id: u64,
         panel_id: Uuid,
     ) -> Result<RolePanelWithOptions, WelcomeError> {
         self.welcome
             .find_panel_by_id(panel_id)
             .await?
+            .filter(|panel| panel.panel.guild_id == guild_id)
             .ok_or_else(|| panel_not_found(panel_id))
     }
 }

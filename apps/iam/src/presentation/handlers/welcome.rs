@@ -141,14 +141,9 @@ pub async fn get_panel(
     let panel_id = parse_uuid(&panel_id, "panelId")?;
 
     let use_case = GetRolePanelUseCase::new(state.welcome.clone());
-    let panel = use_case.execute_by_id(panel_id).await?;
-
-    // `execute_by_id` cannot scope by guild on its own, so the check is explicit:
-    // without it a panel id belonging to another guild would be readable through any
-    // guild the caller does hold `autorole:read` in.
-    if panel.panel.guild_id != guild_id {
-        return Err(AppError::NotFound("role panel not found".into()));
-    }
+    // The use case scopes by guild, so a panel id belonging to another guild is a
+    // 404 rather than a leak.
+    let panel = use_case.execute_by_id(guild_id, panel_id).await?;
 
     Ok(Json(panel.into()))
 }
@@ -218,7 +213,7 @@ pub async fn update_panel(
     // Re-read through the id so a slug rename cannot change which row the response
     // describes.
     let detail = GetRolePanelUseCase::new(state.welcome.clone());
-    Ok(Json(detail.execute_by_id(panel_id).await?.into()))
+    Ok(Json(detail.execute_by_id(guild_id, panel_id).await?.into()))
 }
 
 /// Adds a button to a panel.
@@ -249,7 +244,7 @@ pub async fn add_option(
     // Re-read so the response carries the whole panel: the client renders buttons
     // from this list and a partial response would make it refetch anyway.
     let detail = GetRolePanelUseCase::new(state.welcome.clone());
-    let panel = detail.execute_by_id(panel_id).await?;
+    let panel = detail.execute_by_id(guild_id, panel_id).await?;
 
     Ok((StatusCode::CREATED, Json(panel.into())))
 }

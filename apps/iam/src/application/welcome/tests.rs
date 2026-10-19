@@ -527,3 +527,44 @@ async fn a_panel_from_another_guild_is_not_found() {
 
     assert!(matches!(error, WelcomeError::PanelNotFound));
 }
+
+/// The id path has to be scoped too.
+///
+/// `GET /guilds/{guild}/panels/{panel_id}` authorises against the guild in the
+/// path. Reading the panel by id alone meant anyone holding `autorole:read` in
+/// *their* guild could fetch another guild's panel by guessing a UUID — and the
+/// write on the same path was already scoped, so only the response leaked.
+#[tokio::test]
+async fn a_panel_from_another_guild_is_not_found_by_id() {
+    let store = store();
+    let other = panel(999, "self-roles");
+    let other_id = other.id;
+    seed_panel(&store, other, Vec::new());
+
+    let use_case = super::panels::GetRolePanelUseCase::new(FakeWelcome::new(store));
+
+    let error = use_case
+        .execute_by_id(GUILD, other_id)
+        .await
+        .expect_err("the guild in the path decides what is readable");
+
+    assert!(matches!(error, WelcomeError::PanelNotFound));
+}
+
+/// The same panel, read through its own guild, still resolves.
+#[tokio::test]
+async fn a_panel_is_found_by_id_in_its_own_guild() {
+    let store = store();
+    let own = panel(GUILD, "self-roles");
+    let own_id = own.id;
+    seed_panel(&store, own, Vec::new());
+
+    let use_case = super::panels::GetRolePanelUseCase::new(FakeWelcome::new(store));
+
+    let found = use_case
+        .execute_by_id(GUILD, own_id)
+        .await
+        .expect("same guild, same panel");
+
+    assert_eq!(found.panel.id, own_id);
+}
