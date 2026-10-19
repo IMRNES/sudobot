@@ -29,7 +29,9 @@ use iam::domain::economy::{EconomyRepository, NewTransaction, ShopItem, Transact
 use iam::domain::guild::{GuildRepository, NewGuild};
 use iam::domain::user::{NewUser, UserRepository};
 use iam::infrastructure::repository::{
-    SeaOrmEconomyRepository, SeaOrmGuildRepository, SeaOrmLevelingRepository, SeaOrmUserRepository,
+    SeaOrmEconomyRepository, SeaOrmGuildMemberRepository, SeaOrmGuildRepository,
+    SeaOrmGuildRoleRepository, SeaOrmLevelingRepository, SeaOrmPermissionRepository,
+    SeaOrmUserRepository,
 };
 use iam::infrastructure::service::{Argon2PasswordService, JwtTokenService};
 
@@ -671,4 +673,112 @@ async fn a_profile_is_created_once_and_xp_accumulates() {
         .expect("a missing config falls back to defaults");
     assert!(config.enabled, "leveling is on by default");
     assert!(config.stack_roles, "titles accumulate by default");
+}
+
+#[tokio::test]
+#[ignore = "needs a database"]
+async fn a_members_permissions_come_from_the_roles_they_hold() {
+    use iam::domain::guild_member::{GuildMemberRepository, NewGuildMember};
+    use iam::domain::rbac::{
+        GuildRoleRepository, PermissionRepository, default_role_permissions, slugs,
+    };
+
+    let Some(db) = connect().await else { return };
+    let guilds = SeaOrmGuildRepository::new(db.clone());
+    let users = SeaOrmUserRepository::new(db.clone());
+    let roles = SeaOrmGuildRoleRepository::new(db.clone());
+    let members = SeaOrmGuildMemberRepository::new(db.clone());
+    let catalog = SeaOrmPermissionRepository::new(db);
+
+    let guild_id = unique_guild_id().saturating_add(11);
+    seed_guild(&guilds, guild_id).await;
+
+    // `bootstrap` seeds the catalog, but this test must not depend on it having run,
+    // so it upserts the names it is about to grant. `upsert` is idempotent by design,
+    // which is what makes this safe alongside a real bootstrap.
+    let granted = default_role_permissions(slugs::ADMIN);
+    for name in granted {
+        catalog
+            .upsert(name, "test", "granted by the membership test")
+            .await
+            .expect("the catalog upsert is repeatable");
+    }
+
+    let role = roles
+        .create(
+            guild_id,
+            "membership-test",
+            "Membership Test",
+            None,
+            false,
+            0,
+        )
+        .await
+        .expect("the role inserts");
+
+    let names: Vec<String> = granted.iter().map(|name| (*name).to_string()).collect();
+    roles
+        .replace_role_permissions(role.id, &names)
+        .await
+        .expect("the matrix is written");
+
+    let member_user = users
+        .create(NewUser {
+            id: Uuid::new_v4(),
+            discord_id: unique_guild_id(),
+            username: "matrix-holder".to_string(),
+            global_name: None,
+            avatar_url: None,
+            email: None,
+        })
+        .await
+        .expect("the user inserts");
+
+    members
+        .upsert_from_discord(NewGuildMember {
+            id: Uuid::new_v4(),
+            guild_id,
+            user_id: member_user.id,
+            guild_role_id: role.id,
+            discord_permissions: 0,
+            discord_nick: None,
+        })
+        .await
+        .expect("the membership inserts");
+
+    // The assertion that catches the traversal being rooted at the wrong table:
+    // filtering `guild_members` without joining it is invalid SQL, and it only fails
+    // once a member exists — an empty set for everybody looks identical to a broken
+    // query from the outside, which is how this survived until a real login hit it.
+    let held = roles
+        .permissions_for_member(guild_id, member_user.id)
+        .await
+        .expect("the traversal must be valid SQL");
+
+    for name in granted {
+        assert!(
+            held.allows(name),
+            "the granted permission `{name}` must resolve for the member: {held:?}"
+        );
+    }
+
+    // No membership row at all is an empty set, not an error: "not a member" and
+    // "member whose role grants nothing" are the same answer to "may they?".
+    let stranger = users
+        .create(NewUser {
+            id: Uuid::new_v4(),
+            discord_id: unique_guild_id().saturating_add(1),
+            username: "not-a-member".to_string(),
+            global_name: None,
+            avatar_url: None,
+            email: None,
+        })
+        .await
+        .expect("the second user inserts");
+
+    let none = roles
+        .permissions_for_member(guild_id, stranger.id)
+        .await
+        .expect("a missing membership is not an error");
+    assert!(none.is_empty(), "a non-member holds no permissions");
 }

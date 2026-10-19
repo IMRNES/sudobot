@@ -2,15 +2,15 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-    TransactionTrait,
+    ColumnTrait, DatabaseConnection, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    RelationTrait, TransactionTrait,
 };
 use uuid::Uuid;
 
 use crate::domain::errors::{Page, PaginationParams, RepositoryError};
 use crate::domain::rbac::{GuildRole, GuildRoleRepository, PermissionSet};
 
-use super::entities::{guild_role_permissions, guild_roles, permissions};
+use super::entities::{guild_members, guild_role_permissions, guild_roles, permissions};
 use super::error::{map_db_err, not_found};
 use super::mapping::{from_utc, snowflake};
 use super::pagination::paginate_models;
@@ -290,13 +290,33 @@ impl GuildRoleRepository for SeaOrmGuildRoleRepository {
         // One query: member → role → matrix → catalog. This is the authorization hot
         // path, and a per-role round trip here would be one query per request per
         // role the member holds.
-        let names: Vec<String> = guild_role_permissions::Entity::find()
+        //
+        // The traversal starts at `guild_members`, not at the matrix: the member is
+        // what narrows the result, so its table has to be in the FROM clause for the
+        // `guild_id`/`user_id` filters to reference a joined column. Filtering on
+        // `guild_members` from a query rooted at `guild_role_permissions` produced
+        // `missing FROM-clause entry for table "guild_members"` at runtime, which
+        // only ever surfaced once a caller with a membership actually asked.
+        let names: Vec<String> = guild_members::Entity::find()
             .select_only()
             .column(permissions::Column::Name)
-            .inner_join(super::entities::guild_roles::Entity)
-            .inner_join(permissions::Entity)
-            .filter(super::entities::guild_members::Column::GuildId.eq(snowflake(guild_id)))
-            .filter(super::entities::guild_members::Column::UserId.eq(user_id))
+            .join_join(
+                JoinType::InnerJoin,
+                guild_members::Relation::GuildRole.def(),
+                None,
+            )
+            .join_join(
+                JoinType::InnerJoin,
+                guild_roles::Relation::GuildRolePermission.def(),
+                None,
+            )
+            .join_join(
+                JoinType::InnerJoin,
+                guild_role_permissions::Relation::Permission.def(),
+                None,
+            )
+            .filter(guild_members::Column::GuildId.eq(snowflake(guild_id)))
+            .filter(guild_members::Column::UserId.eq(user_id))
             .into_tuple::<String>()
             .all(&self.db)
             .await
