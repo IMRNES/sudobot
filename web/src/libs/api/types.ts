@@ -301,6 +301,24 @@ export interface IRewardCreateRequest {
 /* Welcome and role panels                                                     */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * What the bot would post for a join, rendered from the saved config.
+ *
+ * `rendered` is null when nothing would be sent at all; `embed` is null when the
+ * guild has no visible card.
+ */
+export interface IWelcomePreviewResponse {
+	rendered: string | null
+	embed: {
+		title: string | null
+		description: string | null
+		author: string | null
+		image_url: string | null
+		thumbnail_url: string | null
+		color: number | null
+	} | null
+}
+
 export interface IWelcomeConfigResponse {
 	welcome_enabled: boolean
 	welcome_channel_id: string | null

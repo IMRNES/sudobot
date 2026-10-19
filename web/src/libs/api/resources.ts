@@ -29,6 +29,7 @@ import type {
 	IShopItemResponse,
 	ITransactionResponse,
 	IWelcomeConfigResponse,
+	IWelcomePreviewResponse,
 	TAutoRoleUpdateRequest,
 	TLevelingConfigUpdateRequest,
 	TPanelUpdateRequest,
@@ -195,7 +196,7 @@ export const welcomeApi = {
 	 * sent" instead of an empty preview.
 	 */
 	preview: (guildId: string, options: TSignal = {}) =>
-		api.get<{ rendered: string | null }>(`/guilds/${guildId}/welcome/preview`, options),
+		api.get<IWelcomePreviewResponse>(`/guilds/${guildId}/welcome/preview`, options),
 }
 
 /* -------------------------------------------------------------------------- */

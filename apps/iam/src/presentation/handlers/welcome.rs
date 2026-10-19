@@ -336,7 +336,21 @@ pub async fn preview_welcome(
         })
         .await?;
 
-    Ok(Json(serde_json::json!({
-        "rendered": message.map(|message| message.content),
-    })))
+    // The card is part of what the admin is previewing: posting it is the point
+    // of the feature, and a preview that showed only the text would let a broken
+    // image URL pass unnoticed until a real member joined.
+    Ok(Json(match message {
+        Some(message) => serde_json::json!({
+            "rendered": message.content,
+            "embed": message.embed.map(|embed| serde_json::json!({
+                "title": embed.title,
+                "description": embed.description,
+                "author": embed.author,
+                "image_url": embed.image_url,
+                "thumbnail_url": embed.thumbnail_url,
+                "color": message.embed_color,
+            })),
+        }),
+        None => serde_json::json!({ "rendered": null, "embed": null }),
+    }))
 }

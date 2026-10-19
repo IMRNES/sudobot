@@ -12,7 +12,11 @@ import { Label } from "#/components/ui/label.tsx"
 import { Switch } from "#/components/ui/switch.tsx"
 import { Textarea } from "#/components/ui/textarea.tsx"
 import { welcomeApi } from "#/libs/api/resources.ts"
-import { type IWelcomeConfigResponse, WELCOME_PLACEHOLDERS } from "#/libs/api/types.ts"
+import {
+	type IWelcomeConfigResponse,
+	type IWelcomePreviewResponse,
+	WELCOME_PLACEHOLDERS,
+} from "#/libs/api/types.ts"
 import { normalizeApiError } from "#/libs/errors/index.ts"
 import { queryKeys } from "#/libs/query/keys.ts"
 import { hexColorToNumber, numberToHexColor } from "#/libs/utils.ts"
@@ -500,6 +504,7 @@ function WelcomeForm({
 function WelcomePreview({ guildId }: { guildId: string }) {
 	const query = useQuery(guildQueries.welcomePreview(guildId))
 	const rendered = query.data?.rendered ?? null
+	const embed = query.data?.embed ?? null
 
 	return (
 		<div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/25 p-4">
@@ -527,12 +532,43 @@ function WelcomePreview({ guildId }: { guildId: string }) {
 					Nothing would be sent: the welcome message is off or empty.
 				</p>
 			) : (
-				<p className="text-sm break-words whitespace-pre-wrap">{rendered}</p>
+				<div className="flex flex-col gap-3">
+					<p className="text-sm break-words whitespace-pre-wrap">{rendered}</p>
+					{embed ? <PreviewCard embed={embed} /> : null}
+				</div>
 			)}
 
 			<p className="text-xs text-muted-foreground">
 				Rendered from the <strong>saved</strong> message, as a made-up member named NewMember.
 			</p>
+		</div>
+	)
+}
+
+/**
+ * The Discord embed, drawn the way Discord draws it.
+ *
+ * A preview that showed only the message text would let a broken image URL or a
+ * card with no visible field pass unnoticed until a real member joined, which is
+ * the one moment nobody wants to discover it.
+ */
+function PreviewCard({ embed }: { embed: NonNullable<IWelcomePreviewResponse["embed"]> }) {
+	const accent = embed.color === null ? undefined : `#${embed.color.toString(16).padStart(6, "0")}`
+
+	return (
+		<div
+			className="flex max-w-md flex-col gap-2 rounded-md border-l-4 bg-background/80 p-3"
+			style={{ borderLeftColor: accent ?? "var(--border)" }}
+		>
+			{embed.thumbnail_url ? (
+				<img src={embed.thumbnail_url} alt="" className="size-16 self-end rounded" />
+			) : null}
+			{embed.author ? <span className="text-xs text-muted-foreground">{embed.author}</span> : null}
+			{embed.title ? <strong className="text-sm">{embed.title}</strong> : null}
+			{embed.description ? (
+				<p className="text-sm break-words whitespace-pre-wrap">{embed.description}</p>
+			) : null}
+			{embed.image_url ? <img src={embed.image_url} alt="" className="w-full rounded" /> : null}
 		</div>
 	)
 }
