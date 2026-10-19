@@ -19,6 +19,9 @@ pub struct LevelingConfigResponse {
     #[serde(with = "crate::presentation::dto::optional_snowflake")]
     pub announce_channel_id: Option<u64>,
     pub stack_roles: bool,
+    /// The role the ladder sits above; null means just above `@everyone`.
+    #[serde(with = "crate::presentation::dto::optional_snowflake")]
+    pub ladder_base_role_id: Option<u64>,
     #[serde(with = "snowflake_list")]
     pub ignored_channel_ids: Vec<u64>,
     #[serde(with = "snowflake_list")]
@@ -36,6 +39,7 @@ impl From<LevelingConfig> for LevelingConfigResponse {
             curve: config.curve.as_str().to_string(),
             announce_channel_id: config.announce_channel_id,
             stack_roles: config.stack_roles,
+            ladder_base_role_id: config.ladder_base_role_id,
             ignored_channel_ids: config.ignored_channel_ids,
             ignored_role_ids: config.ignored_role_ids,
         }
@@ -59,6 +63,9 @@ pub struct UpdateLevelingConfigRequest {
     #[serde(default, deserialize_with = "double_option")]
     pub announce_channel_id: Option<Option<String>>,
     pub stack_roles: Option<bool>,
+    /// `null` places the ladder directly above `@everyone` again.
+    #[serde(default, deserialize_with = "double_option")]
+    pub ladder_base_role_id: Option<Option<String>>,
     pub ignored_channel_ids: Option<Vec<String>>,
     pub ignored_role_ids: Option<Vec<String>>,
 }

@@ -16,6 +16,8 @@ pub struct Model {
     pub curve: String,
     pub announce_channel_id: Option<i64>,
     pub stack_roles: bool,
+    /// The role the ladder sits above; `None` means just above `@everyone`.
+    pub ladder_base_role_id: Option<i64>,
     /// `bigint[]`; `None` is SQL NULL, `Some(vec![])` an empty array.
     pub ignored_channel_ids: Option<Vec<i64>>,
     pub ignored_role_ids: Option<Vec<i64>>,

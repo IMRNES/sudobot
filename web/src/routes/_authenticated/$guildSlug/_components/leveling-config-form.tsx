@@ -112,9 +112,12 @@ function ConfigForm({
 			voice_xp_multiplier: String(config.voice_xp_multiplier),
 			curve: config.curve,
 			announce_channel_id: config.announce_channel_id ?? "",
+			ladder_base_role_id: config.ladder_base_role_id ?? "",
 		},
 		onSubmit: ({ value }) => {
 			save.mutate({
+				// Empty means "no base role": the ladder goes back above @everyone.
+				ladder_base_role_id: value.ladder_base_role_id.trim() || null,
 				xp_min: Number.parseInt(value.xp_min, 10),
 				xp_max: Number.parseInt(value.xp_max, 10),
 				cooldown_secs: Number.parseInt(value.cooldown_secs, 10),
@@ -308,6 +311,38 @@ function ConfigForm({
 									value={field.state.value}
 									disabled={!canWrite}
 									placeholder="123456789012345678"
+									onBlur={field.handleBlur}
+									onChange={(event) => field.handleChange(event.target.value)}
+									className="font-mono tabular-nums"
+								/>
+							</FormField>
+						)}
+					</form.Field>
+
+					{/* The ladder's place in the hierarchy. Without this the rungs sit
+					    below a guild's default member role and read as a demotion. */}
+					<form.Field
+						name="ladder_base_role_id"
+						validators={{
+							onChange: ({ value }) => {
+								const trimmed = value.trim()
+								if (trimmed.length === 0) return undefined
+								return /^\d{5,25}$/.test(trimmed) ? undefined : "A Discord role id — digits only."
+							},
+						}}
+					>
+						{(field) => (
+							<FormField
+								label="Role the ladder sits above"
+								htmlFor={field.name}
+								description="Usually your server's default member role, so level roles rank above plain members. Leave empty to place the ladder directly above @everyone."
+								error={field.state.meta.errors[0]?.toString()}
+							>
+								<Input
+									id={field.name}
+									value={field.state.value}
+									disabled={!canWrite}
+									placeholder="1460146703637287115"
 									onBlur={field.handleBlur}
 									onChange={(event) => field.handleChange(event.target.value)}
 									className="font-mono tabular-nums"

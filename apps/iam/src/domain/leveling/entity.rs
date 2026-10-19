@@ -15,6 +15,12 @@ pub struct LevelingConfig {
     pub announce_channel_id: Option<u64>,
     /// Whether reward roles accumulate or replace one another.
     pub stack_roles: bool,
+    /// The role the ladder is placed above, when the guild has a base member role.
+    ///
+    /// `None` means "just above `@everyone`". A guild with a role every member
+    /// wears — "Users", "Members", whatever it is called — sets this so the ladder
+    /// sits above it, because a badge below the base role reads as a demotion.
+    pub ladder_base_role_id: Option<u64>,
     pub ignored_channel_ids: Vec<u64>,
     pub ignored_role_ids: Vec<u64>,
 }
@@ -37,6 +43,9 @@ impl LevelingConfig {
             // guilds that want trophies, but it is not what an unconfigured guild
             // gets.
             stack_roles: false,
+            // No base role by default: a guild that has never configured one gets the
+            // old behaviour, which is a ladder just above `@everyone`.
+            ladder_base_role_id: None,
             ignored_channel_ids: Vec::new(),
             ignored_role_ids: Vec::new(),
         }

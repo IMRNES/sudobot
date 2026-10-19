@@ -135,6 +135,9 @@ impl LevelingRepository for SeaOrmLevelingRepository {
                 config.announce_channel_id.map(snowflake),
             ),
             stack_roles: sea_orm::ActiveValue::Set(config.stack_roles),
+            ladder_base_role_id: sea_orm::ActiveValue::Set(
+                config.ladder_base_role_id.map(snowflake),
+            ),
             ignored_channel_ids: sea_orm::ActiveValue::Set(Some(
                 config
                     .ignored_channel_ids
@@ -168,6 +171,11 @@ impl LevelingRepository for SeaOrmLevelingRepository {
                         leveling_configs::Column::Curve,
                         leveling_configs::Column::AnnounceChannelId,
                         leveling_configs::Column::StackRoles,
+                        // Must be listed here as well as set on the model: an upsert
+                        // writes only the columns named in `update_columns`, so a
+                        // column that is set but omitted is discarded on every save
+                        // to an existing row — silently, with a 200.
+                        leveling_configs::Column::LadderBaseRoleId,
                         leveling_configs::Column::IgnoredChannelIds,
                         leveling_configs::Column::IgnoredRoleIds,
                         leveling_configs::Column::UpdatedAt,
@@ -593,6 +601,7 @@ impl From<leveling_configs::Model> for LevelingConfig {
             curve: LevelCurve::parse(&model.curve).unwrap_or(LevelCurve::Mrn),
             announce_channel_id: model.announce_channel_id.map(snowflake_from_db),
             stack_roles: model.stack_roles,
+            ladder_base_role_id: model.ladder_base_role_id.map(snowflake_from_db),
             ignored_channel_ids: ids(model.ignored_channel_ids),
             ignored_role_ids: ids(model.ignored_role_ids),
         }

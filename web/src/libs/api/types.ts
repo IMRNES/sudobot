@@ -267,6 +267,8 @@ export interface ILevelingConfigResponse {
 	curve: TLevelingCurve
 	announce_channel_id: string | null
 	stack_roles: boolean
+	/** The role the ladder sits above; null means just above @everyone. */
+	ladder_base_role_id: string | null
 	ignored_channel_ids: string[]
 	ignored_role_ids: string[]
 }

@@ -299,11 +299,6 @@ async fn position_ladder(
 
     let http = data.http();
 
-    // Slots start above every role the guild already uses for something else? No —
-    // the ladder is placed in the low band, just above `@everyone`, because it is a
-    // set of titles rather than a permission tier. `@everyone` is always position 0,
-    // so starting at 1 keeps the ladder at the bottom of the list, which is where
-    // an admin looks for cosmetic roles.
     let before = match guild_id.roles(&http).await {
         Ok(roles) => roles,
         Err(error) => {
@@ -312,12 +307,31 @@ async fn position_ladder(
         }
     };
 
+    // Where the ladder starts. The default is just above `@everyone` — a cosmetic
+    // title belongs at the bottom of the hierarchy. A guild whose members all wear a
+    // base role ("Users", "Members") sets `ladder_base_role_id`, and then the ladder
+    // must sit *above* that role: a badge positioned below the role every plain
+    // member holds reads as a demotion and, worse, sorts below it in the member list
+    // so the climb appears upside down.
+    let base = match data.leveling.find_config(guild_id.get()).await {
+        Ok(config) => config.ladder_base_role_id,
+        Err(error) => {
+            warn!(%error, guild_id = guild_id.get(), "could not read the ladder's base role");
+            None
+        }
+    };
+
+    let start = match base.and_then(|role_id| before.get(&serenity::RoleId::new(role_id))) {
+        Some(role) => usize::from(role.position) + 1,
+        None => 1,
+    };
+
     // Already correct? Reading first keeps a re-run from issuing a pointless write
     // on every deploy, which also keeps the audit log clean.
     let already_ordered = ordered
         .iter()
         .enumerate()
-        .all(|(slot, role_id)| slot_of(&before, role_id) == Some(slot + 1));
+        .all(|(slot, role_id)| slot_of(&before, role_id) == Some(start + slot));
     if already_ordered {
         debug!(
             guild_id = guild_id.get(),
@@ -331,8 +345,8 @@ async fn position_ladder(
     // work; calling it per rung would be twenty-one round trips for the same effect.
     let mut moved = 0;
     for (slot, role_id) in ordered.iter().enumerate() {
-        let target = u16::try_from(slot + 1).unwrap_or(u16::MAX);
-        if slot_of(&before, role_id) == Some(slot + 1) {
+        let target = u16::try_from(start + slot).unwrap_or(u16::MAX);
+        if slot_of(&before, role_id) == Some(start + slot) {
             continue;
         }
 

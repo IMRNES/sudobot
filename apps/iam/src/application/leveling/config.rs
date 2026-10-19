@@ -41,6 +41,8 @@ pub struct UpdateLevelingConfigCommand {
     /// `Some(None)` clears the announcement channel.
     pub announce_channel_id: Option<Option<u64>>,
     pub stack_roles: Option<bool>,
+    /// `Some(None)` places the ladder directly above `@everyone` again.
+    pub ladder_base_role_id: Option<Option<u64>>,
     pub ignored_channel_ids: Option<Vec<u64>>,
     pub ignored_role_ids: Option<Vec<u64>>,
 }
@@ -104,6 +106,9 @@ impl<L: LevelingRepository> UpdateLevelingConfigUseCase<L> {
         }
         if let Some(stack_roles) = command.stack_roles {
             config.stack_roles = stack_roles;
+        }
+        if let Some(ladder_base_role_id) = command.ladder_base_role_id {
+            config.ladder_base_role_id = ladder_base_role_id;
         }
         if let Some(ignored_channel_ids) = command.ignored_channel_ids {
             config.ignored_channel_ids = ignored_channel_ids;
@@ -175,6 +180,7 @@ mod tests {
             curve: None,
             announce_channel_id: None,
             stack_roles: None,
+            ladder_base_role_id: None,
             ignored_channel_ids: None,
             ignored_role_ids: None,
         }
@@ -382,6 +388,35 @@ mod tests {
             config.ignored_role_ids,
             vec![9],
             "a list that was not sent is left alone"
+        );
+    }
+    /// The base role is what decides whether the ladder sits above a guild's default
+    /// member role, so a patch must be able to set it — and to clear it again.
+    #[tokio::test]
+    async fn the_ladder_base_role_can_be_set_and_cleared() {
+        let leveling = FakeLevelingRepository::new();
+
+        let set = UpdateLevelingConfigUseCase::new(leveling.clone())
+            .execute(UpdateLevelingConfigCommand {
+                ladder_base_role_id: Some(Some(1460146703637287115)),
+                ..patch(7)
+            })
+            .await
+            .expect("the base role is accepted");
+
+        assert_eq!(set.ladder_base_role_id, Some(1460146703637287115));
+
+        let cleared = UpdateLevelingConfigUseCase::new(leveling.clone())
+            .execute(UpdateLevelingConfigCommand {
+                ladder_base_role_id: Some(None),
+                ..patch(7)
+            })
+            .await
+            .expect("clearing is accepted");
+
+        assert_eq!(
+            cleared.ladder_base_role_id, None,
+            "an explicit null puts the ladder back above @everyone"
         );
     }
 }

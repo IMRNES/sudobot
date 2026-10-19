@@ -55,6 +55,13 @@ pub async fn update_config(
         None => None,
     };
 
+    // Same shape as the announcement channel: absent leaves it alone, null clears it.
+    let ladder_base_role_id = match request.ladder_base_role_id {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(raw)) => Some(Some(parse_snowflake(&raw, "ladder_base_role_id")?)),
+    };
+
     let ignored_channel_ids = request
         .ignored_channel_ids
         .map(|ids| {
@@ -85,6 +92,7 @@ pub async fn update_config(
             curve: request.curve,
             announce_channel_id,
             stack_roles: request.stack_roles,
+            ladder_base_role_id,
             ignored_channel_ids,
             ignored_role_ids,
         })
