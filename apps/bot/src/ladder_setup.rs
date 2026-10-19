@@ -323,6 +323,8 @@ async fn position_ladder(
         }
     };
 
+    // Where the ladder starts: one slot above the base role when one is configured,
+    // else just above `@everyone`.
     let start = match base.and_then(|role_id| before.get(&serenity::RoleId::new(role_id))) {
         Some(role) => usize::from(role.position) + 1,
         None => 1,
@@ -342,31 +344,30 @@ async fn position_ladder(
         return 0;
     }
 
-    // ONE request carrying every rung, which is the only form that works.
+    // ONE request naming EVERY role, and that completeness is the whole trick.
     //
-    // serenity's `edit_role_position` builds a single-element array `[{id, position}]`
-    // server-side. Sending that twenty-one times does not place twenty-one roles: each
-    // call inserts its role at the requested slot and *shifts* whatever is there, so
-    // the ladder comes out interleaved with the guild's other roles rather than as a
-    // contiguous block. The batch endpoint takes the whole `[{id, position}, ...]`
-    // list in one PATCH and assigns the slots as a set, which is what the ordering
-    // actually means.
+    // Discord moves a role to the position you name only if nothing else ends up
+    // there; naming just the twenty-one rungs asks for slots 2..22 while the guild's
+    // own roles still hold most of them, and the rungs that lose the slot stay where
+    // they were. The observed result was a ladder at 2,3,4,6,7,8,… with the guild's
+    // roles interleaved, which is worse than not trying.
     //
-    // Positions are assigned to every rung, not only the misplaced ones, because the
-    // list is interpreted as a whole.
-    // Highest position first. Discord applies the list in order and each entry
-    // inserts-into the slot, so walking upward would push the already-placed roles
-    // along; walking downward fills the block from the top.
-    let payload: Vec<serde_json::Value> = ordered
-        .iter()
-        .enumerate()
-        .rev()
-        .map(|(slot, role_id)| {
-            serde_json::json!({
-                "id": role_id.to_string(),
-                "position": u16::try_from(start + slot).unwrap_or(u16::MAX),
-            })
-        })
+    // Sending the complete list makes the requested positions a permutation of every
+    // slot, so each rung lands exactly where asked. `@everyone` is excluded: it is
+    // pinned at position 0 and naming it is an error. serenity's own
+    // `edit_role_position` cannot express this — it builds a one-element array, so
+    // twenty-one calls are twenty-one separate single-role moves.
+    let existing: Vec<(u64, u16)> = before
+        .values()
+        .filter(|role| role.id.get() != guild_id.get())
+        .map(|role| (role.id.get(), role.position))
+        .collect();
+
+    let ladder: Vec<u64> = ordered.iter().map(|role_id| role_id.get()).collect();
+
+    let payload: Vec<serde_json::Value> = position_plan(&existing, &ladder, start)
+        .into_iter()
+        .map(|(id, position)| serde_json::json!({ "id": id.to_string(), "position": position }))
         .collect();
 
     let body = match serde_json::to_vec(&payload) {
@@ -424,6 +425,43 @@ async fn position_ladder(
     }
 
     moved
+}
+
+/// The complete role order to send, as `(role id, position)` pairs.
+///
+/// Pure so it can be tested without a guild: the ordering rule is the part that was
+/// wrong, and it is much easier to pin down here than through Discord.
+///
+/// `existing` is every role but `@everyone`, as `(id, current position)`. The ladder
+/// is spliced in directly above everything currently at or below `start`, and the
+/// rest keeps its relative order. Positions are then assigned 1..n across the whole
+/// list, which is what makes the request a permutation rather than a set of hopeful
+/// single moves.
+/// One role and the position it should end up at.
+type Placed = (u64, u16);
+
+fn position_plan(existing: &[Placed], ladder: &[u64], start: usize) -> Vec<Placed> {
+    let ladder_ids: std::collections::HashSet<u64> = ladder.iter().copied().collect();
+
+    let mut others: Vec<Placed> = existing
+        .iter()
+        .copied()
+        .filter(|(id, _)| !ladder_ids.contains(id))
+        .collect();
+    others.sort_by_key(|(_, position)| *position);
+
+    let (below, above): (Vec<Placed>, Vec<Placed>) = others
+        .into_iter()
+        .partition(|(_, position)| usize::from(*position) < start);
+
+    below
+        .iter()
+        .map(|(id, _)| *id)
+        .chain(ladder.iter().copied())
+        .chain(above.iter().map(|(id, _)| *id))
+        .enumerate()
+        .map(|(slot, id)| (id, u16::try_from(slot + 1).unwrap_or(u16::MAX)))
+        .collect()
 }
 
 /// The rung's current slot, counted from 1, or `None` when the role is gone.
@@ -972,5 +1010,67 @@ mod tests {
 
         let roles: HashMap<serenity::RoleId, serenity::Role> = HashMap::new();
         assert_eq!(highest_ungrantable(&roles, 0), None);
+    }
+
+    /// The bug this function exists for: the ladder must come out as one contiguous
+    /// block, and everything else must keep its relative order.
+    #[test]
+    fn the_ladder_is_spliced_in_as_one_block() {
+        // @everyone is not in the input (it is pinned), so positions start at 1.
+        let existing = vec![
+            (10, 1), // "Users"  the base role
+            (11, 2), // a bot role
+            (12, 3), // some other guild role
+        ];
+        let ladder = vec![100, 101, 102];
+
+        let plan = position_plan(&existing, &ladder, 2);
+
+        // Users stays at the bottom, the ladder is next as a block, the rest follows.
+        assert_eq!(
+            plan,
+            vec![(10, 1), (100, 2), (101, 3), (102, 4), (11, 5), (12, 6)]
+        );
+    }
+
+    /// Every role must appear exactly once. A missing role would be left at whatever
+    /// position it already had, which is how the ladder ended up interleaved.
+    #[test]
+    fn every_role_appears_exactly_once() {
+        let existing = vec![(10, 1), (11, 2), (12, 3), (13, 4)];
+        let ladder = vec![100, 101];
+
+        let plan = position_plan(&existing, &ladder, 1);
+
+        assert_eq!(plan.len(), existing.len() + ladder.len());
+        let mut ids: Vec<u64> = plan.iter().map(|(id, _)| *id).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![10, 11, 12, 13, 100, 101]);
+    }
+
+    /// Positions must be 1..n with no gaps and no ties. Discord only moves a role
+    /// into a free slot, so a duplicated position leaves a rung where it was.
+    #[test]
+    fn positions_are_dense_and_unique() {
+        let existing = vec![(10, 1), (11, 7), (12, 9)];
+        let ladder = vec![100, 101, 102];
+
+        let plan = position_plan(&existing, &ladder, 2);
+
+        let positions: Vec<u16> = plan.iter().map(|(_, position)| *position).collect();
+        let expected: Vec<u16> = (1..=plan.len() as u16).collect();
+        assert_eq!(positions, expected);
+    }
+
+    /// With no base role configured the ladder sits directly above `@everyone`,
+    /// which is where it has always been.
+    #[test]
+    fn without_a_base_role_the_ladder_sits_at_the_bottom() {
+        let existing = vec![(10, 1), (11, 2)];
+        let ladder = vec![100, 101];
+
+        let plan = position_plan(&existing, &ladder, 1);
+
+        assert_eq!(plan, vec![(100, 1), (101, 2), (10, 3), (11, 4)]);
     }
 }
