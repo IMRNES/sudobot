@@ -358,6 +358,153 @@ mod tests {
         Some(diagonal_max / axis_min.max(1.0))
     }
 
+    /// Every opaque pixel must sit inside the inscribed circle.
+    ///
+    /// This is the check that the other two could not make. The margin test
+    /// samples the outermost row and column, so it passes when the artwork covers
+    /// only the middle of the canvas and leaves a wide transparent border -- a
+    /// disc of radius R inside a canvas of radius 2R has a clean outer ring and
+    /// still shows square corners if anything rectangular survives at radius R.
+    ///
+    /// Formulated as "furthest opaque pixel from the centre, over half the alpha
+    /// bounding box", because that is true of a disc and false of a square
+    /// regardless of scale: a square's corners reach sqrt(2) times its half-side.
+    #[test]
+    fn every_opaque_pixel_lies_inside_the_inscribed_circle() {
+        for rung in iam::domain::leveling::LADDER.iter() {
+            let bytes = badge(rung.name)
+                .map(|b| b.png)
+                .unwrap_or_else(|| panic!("{} has no embedded badge", rung.name));
+
+            let (width, height, rgba) = decode_rgba(bytes)
+                .unwrap_or_else(|| panic!("{}: could not decode the PNG", rung.name));
+
+            let opaques: Vec<(usize, usize)> = (0..height)
+                .flat_map(|y| (0..width).map(move |x| (x, y)))
+                .filter(|(x, y)| rgba[(y * width + x) * 4 + 3] > 8)
+                .collect();
+
+            let (min_x, max_x) = opaques
+                .iter()
+                .fold((usize::MAX, 0), |(lo, hi), (x, _)| (lo.min(*x), hi.max(*x)));
+            let (min_y, max_y) = opaques
+                .iter()
+                .fold((usize::MAX, 0), |(lo, hi), (_, y)| (lo.min(*y), hi.max(*y)));
+
+            let centre_x = (min_x + max_x) as f32 / 2.0;
+            let centre_y = (min_y + max_y) as f32 / 2.0;
+            let radius = ((max_x - min_x).max(max_y - min_y)) as f32 / 2.0;
+
+            let worst = opaques
+                .iter()
+                .map(|(x, y)| {
+                    let dx = *x as f32 - centre_x;
+                    let dy = *y as f32 - centre_y;
+                    (dx * dx + dy * dy).sqrt()
+                })
+                .fold(0.0_f32, f32::max);
+
+            assert!(
+                worst <= radius * 1.06,
+                "{}: an opaque pixel sits {worst:.1}px from the centre but the \
+                 inscribed circle is only {radius:.1}px -- that is a corner, so the \
+                 artwork contains a square. A disc never exceeds its own radius.",
+                rung.name
+            );
+        }
+    }
+
+    /// The rim must be the same colour all the way round.
+    ///
+    /// The third defect, and the one both earlier checks missed. Five badges
+    /// carried a dark square panel bolted over the disc: bright along the
+    /// diagonals where its corners sat, dark along the axes where its straight
+    /// edges left the disc's own rim showing as a lens-shaped sliver. The alpha
+    /// silhouette stayed perfectly round and the brightest band was still found
+    /// on the diagonals, so the margin and plate tests both passed while the
+    /// badge plainly read as a framed square.
+    ///
+    /// Measured as the brightness gap between the diagonal rim and the axis rim,
+    /// relative to the brighter of the two. A circle is uniform (the 16 healthy
+    /// badges score 0.00-0.12); a panel with corners on the diagonals scores
+    /// about 0.78.
+    #[test]
+    fn no_badge_has_a_panel_that_only_lights_its_diagonals() {
+        for rung in iam::domain::leveling::LADDER.iter() {
+            let bytes = badge(rung.name)
+                .map(|b| b.png)
+                .unwrap_or_else(|| panic!("{} has no embedded badge", rung.name));
+
+            let Some(contrast) = rim_contrast(bytes) else {
+                continue;
+            };
+
+            assert!(
+                contrast <= 0.25,
+                "{}: the rim is {contrast:.2} brighter on the diagonals than on the \
+                 axes (0.00 is a uniform circle). A square panel's corners sit on the \
+                 diagonals, so this badge reads as a framed square. Re-mask it.",
+                rung.name
+            );
+        }
+    }
+
+    /// Brightness difference between the diagonal rim and the axis rim, over the
+    /// brighter of the two, sampled in the outer band of the artwork.
+    fn rim_contrast(png: &[u8]) -> Option<f32> {
+        let (width, height, rgba) = decode_rgba(png)?;
+
+        let opaque: Vec<(usize, usize)> = (0..height)
+            .flat_map(|y| (0..width).map(move |x| (x, y)))
+            .filter(|(x, y)| rgba[(y * width + x) * 4 + 3] > 200)
+            .collect();
+        if opaque.is_empty() {
+            return None;
+        }
+
+        let min_x = opaque.iter().map(|(x, _)| *x).min()?;
+        let max_x = opaque.iter().map(|(x, _)| *x).max()?;
+        let min_y = opaque.iter().map(|(_, y)| *y).min()?;
+        let max_y = opaque.iter().map(|(_, y)| *y).max()?;
+        let centre_x = (min_x + max_x) as f32 / 2.0;
+        let centre_y = (min_y + max_y) as f32 / 2.0;
+        let radius = ((max_x - min_x).max(max_y - min_y)) as f32 / 2.0;
+
+        let band = |degrees: f32| -> Option<f32> {
+            let radians = degrees.to_radians();
+            let mut total = 0.0f32;
+            let mut count = 0u32;
+            let low = (radius * 0.72) as usize;
+            let high = (radius * 0.97) as usize;
+            for step in low..=high {
+                let x = (centre_x + step as f32 * radians.cos()) as usize;
+                let y = (centre_y + step as f32 * radians.sin()) as usize;
+                if x >= width || y >= height {
+                    continue;
+                }
+                let offset = (y * width + x) * 4;
+                if rgba[offset + 3] > 200 {
+                    total += (u32::from(rgba[offset])
+                        + u32::from(rgba[offset + 1])
+                        + u32::from(rgba[offset + 2])) as f32
+                        / 3.0;
+                    count += 1;
+                }
+            }
+            (count > 0).then(|| total / count as f32)
+        };
+
+        let mean = |angles: [f32; 4]| -> Option<f32> {
+            let values: Vec<f32> = angles.iter().filter_map(|d| band(*d)).collect();
+            (!values.is_empty()).then(|| values.iter().sum::<f32>() / values.len() as f32)
+        };
+
+        let axes = mean([0.0, 90.0, 180.0, 270.0])?;
+        let diagonals = mean([45.0, 135.0, 225.0, 315.0])?;
+
+        Some((diagonals - axes).abs() / axes.max(diagonals).max(1.0))
+    }
+
     #[test]
     fn every_rung_has_a_badge() {
         assert_eq!(
