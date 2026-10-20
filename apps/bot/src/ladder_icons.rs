@@ -121,10 +121,33 @@ mod tests {
 
     /// The highest alpha in the outermost pixel ring of an 8-bit RGBA PNG.
     ///
-    /// Reconstructs every scanline through the PNG filters, because the filtered
-    /// bytes are deltas: reading alpha straight out of them would understate or
-    /// overstate the real value depending on what the encoder chose.
+    /// A thin wrapper over [`decode_rgba`] so the two checks that need pixels
+    /// share one decoder instead of drifting apart.
     fn edge_alpha(png: &[u8]) -> Option<u8> {
+        let (width, height, rgba) = decode_rgba(png)?;
+
+        let pixel_alpha = |x: usize, y: usize| rgba[(y * width + x) * 4 + 3];
+        let mut peak = 0u8;
+
+        for x in 0..width {
+            peak = peak.max(pixel_alpha(x, 0)).max(pixel_alpha(x, height - 1));
+        }
+        for y in 0..height {
+            peak = peak.max(pixel_alpha(0, y)).max(pixel_alpha(width - 1, y));
+        }
+
+        Some(peak)
+    }
+
+    /// Decode an 8-bit RGBA PNG to `(width, height, rgba bytes)`.
+    ///
+    /// Reconstructs every scanline through the PNG filters, because the filtered
+    /// bytes are deltas: reading a channel straight out of them would understate
+    /// or overstate the real value depending on what the encoder chose. Only
+    /// colour type 6 (RGBA) is accepted -- anything else means the artwork
+    /// pipeline changed and these checks need revisiting rather than silently
+    /// measuring the wrong bytes.
+    fn decode_rgba(png: &[u8]) -> Option<(usize, usize, Vec<u8>)> {
         let mut pos = 8; // skip the signature
         let mut width = 0usize;
         let mut height = 0usize;
@@ -168,7 +191,7 @@ mod tests {
         // Unfilter in place, scanline by scanline, as libpng/the spec describes.
         let mut prev = vec![0u8; stride];
         let mut cur = vec![0u8; stride];
-        let mut peak = 0u8;
+        let mut out = Vec::with_capacity(stride * height);
 
         for row in 0..height {
             let start = row * (stride + 1);
@@ -204,20 +227,11 @@ mod tests {
                 };
             }
 
-            // Only the outer ring matters: first and last row, and the first and last
-            // pixel of every row.
-            if row == 0 || row == height - 1 {
-                for x in 0..width {
-                    peak = peak.max(cur[x * bpp + 3]);
-                }
-            }
-            peak = peak.max(cur[3]);
-            peak = peak.max(cur[(width - 1) * bpp + 3]);
-
+            out.extend_from_slice(&cur);
             std::mem::swap(&mut prev, &mut cur);
         }
 
-        Some(peak)
+        Some((width, height, out))
     }
 
     /// zlib inflate, using nothing but the standard library.
@@ -244,6 +258,104 @@ mod tests {
             .read_to_end(&mut out)
             .ok()?;
         Some(out)
+    }
+
+    /// No badge may carry a square plate inside its circle.
+    ///
+    /// This is the defect the outer-margin check could not see. Measured on the
+    /// first release: the bright ring around the artwork sat at r=81 along the
+    /// axes but r=114 along the diagonals -- a ratio of sqrt(2), which is the
+    /// signature of a square, not a circle. The alpha mask was round, so the
+    /// canvas had no opaque edge pixels and the margin assertion passed, while
+    /// the plate's four corners were plainly visible inside the badge.
+    ///
+    /// A circle gives a ratio of 1.0 whatever its radius; a square plate gives
+    /// 1.414. The window is centred on sqrt(2) rather than set to "anything
+    /// above 1.2" because a bright patch in the middle of a glyph also scores
+    /// high (one badge measured 2.12) and must not be reported as a plate.
+    #[test]
+    fn no_badge_has_a_square_plate_inside_its_circle() {
+        for rung in iam::domain::leveling::LADDER.iter() {
+            let bytes = badge(rung.name)
+                .map(|b| b.png)
+                .unwrap_or_else(|| panic!("{} has no embedded badge", rung.name));
+
+            // `None` means the badge has no bright outer band to measure -- it is
+            // composed differently, not defective. Failing on that would make the
+            // check reject a perfectly round badge for lacking a rim, which is what
+            // it did to Visionary on the first run.
+            let Some(ratio) = plate_squareness(bytes) else {
+                continue;
+            };
+
+            // Centred on sqrt(2) rather than "anything above 1.2": a bright patch
+            // inside a glyph also scores high -- Mage measures 2.12 on its lit
+            // crystal -- and reporting that as a plate would fail a badge whose
+            // silhouette is a perfect circle.
+            let square_plate = (1.30..=1.50).contains(&ratio);
+            assert!(
+                !square_plate,
+                "{}: the artwork is a square plate (diagonal/axis reach = {ratio:.2}, \
+                 where a circle is 1.00 and a square is 1.41). The plate's corners are \
+                 what reads as a frame in Discord. Re-mask the artwork to a circle.",
+                rung.name
+            );
+        }
+    }
+
+    /// How square the artwork's outer bright band is: its reach along the
+    /// diagonals divided by its reach along the axes.
+    ///
+    /// 1.0 is a circle, sqrt(2) is a square. Returns `None` when no bright band
+    /// is found at all, which means the badge is composed differently and this
+    /// check does not apply.
+    fn plate_squareness(png: &[u8]) -> Option<f32> {
+        let (width, height, rgba) = decode_rgba(png)?;
+        let centre_x = width as f32 / 2.0;
+        let centre_y = height as f32 / 2.0;
+        let limit = width / 2 + 1;
+
+        let reach = |degrees: f32| -> Option<usize> {
+            let radians = degrees.to_radians();
+            let mut found = None;
+            for radius in 1..limit {
+                let x = (centre_x + radius as f32 * radians.cos()) as usize;
+                let y = (centre_y + radius as f32 * radians.sin()) as usize;
+                if x >= width || y >= height {
+                    break;
+                }
+                let offset = (y * width + x) * 4;
+                let (r, g, b, a) = (
+                    rgba[offset],
+                    rgba[offset + 1],
+                    rgba[offset + 2],
+                    rgba[offset + 3],
+                );
+                // The plate's rim: opaque and bright. The surrounding glow is
+                // dimmer, so a luminance floor separates the two.
+                if a > 200 && (u32::from(r) + u32::from(g) + u32::from(b)) / 3 > 150 {
+                    found = Some(radius);
+                }
+            }
+            found
+        };
+
+        let axes: Vec<usize> = [0.0, 90.0, 180.0, 270.0]
+            .iter()
+            .filter_map(|d| reach(*d))
+            .collect();
+        let diagonals: Vec<usize> = [45.0, 135.0, 225.0, 315.0]
+            .iter()
+            .filter_map(|d| reach(*d))
+            .collect();
+
+        if axes.is_empty() || diagonals.is_empty() {
+            return None;
+        }
+
+        let axis_min = *axes.iter().min()? as f32;
+        let diagonal_max = *diagonals.iter().max()? as f32;
+        Some(diagonal_max / axis_min.max(1.0))
     }
 
     #[test]
