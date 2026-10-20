@@ -111,7 +111,7 @@ function ConfigForm({
 	// Names for the two id fields below. One request serves both, and the hook
 	// returns empty lists if the directory is unreachable, which leaves the pickers
 	// falling back to the raw id rather than blocking the form.
-	const { roles, channels, isUnavailable } = useGuildDirectory(guildId)
+	const { roles, channels, isLoading: namesLoading, isUnavailable } = useGuildDirectory(guildId)
 
 	const save = useMutation({
 		mutationFn: (body: TLevelingConfigUpdateRequest) => levelingApi.updateConfig(guildId, body),
@@ -340,6 +340,7 @@ function ConfigForm({
 									value={field.state.value}
 									onChange={field.handleChange}
 									channels={announceableChannels(channels)}
+									isLoading={namesLoading}
 									disabled={!canWrite}
 									placeholder="No announcement"
 									allowNone
@@ -372,6 +373,7 @@ function ConfigForm({
 									value={field.state.value}
 									onChange={field.handleChange}
 									roles={roles}
+									isLoading={namesLoading}
 									disabled={!canWrite}
 									placeholder="Directly above @everyone"
 								/>

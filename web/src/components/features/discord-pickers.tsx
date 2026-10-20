@@ -61,6 +61,17 @@ function Picker<T extends INamed>({
 	renderRow,
 	/** Extra entries pinned below the list, e.g. an explicit "none". */
 	footer,
+	/**
+	 * The directory has not arrived yet.
+	 *
+	 * This has to be threaded in rather than inferred from `entries.length === 0`:
+	 * an empty list is indistinguishable from "still loading", and treating a load
+	 * as an absence made every saved id announce "(not visible to the bot)" for the
+	 * first render — an accusation of breakage shown against a perfectly valid
+	 * setting. Absence is a claim about the guild; it may only be made once the
+	 * directory has actually been read.
+	 */
+	isLoading = false,
 }: {
 	value: string
 	onChange: (id: string) => void
@@ -71,15 +82,17 @@ function Picker<T extends INamed>({
 	renderTrigger: (selected: T) => React.ReactNode
 	renderRow: (entry: T, isSelected: boolean) => React.ReactNode
 	footer?: React.ReactNode
+	isLoading?: boolean
 }) {
 	const [query, setQuery] = useState("")
 
 	const filtered = useMemo(() => searchByName(entries, query), [entries, query])
 	const selected = entries.find((entry) => entry.id === value)
-	// A value absent from the list is stale (deleted in Discord) or invisible to the
-	// bot. Either way the admin must be able to keep or clear it, never have the
-	// form silently reassign it.
-	const isUnresolved = value.length > 0 && selected === undefined
+	// A value absent from a *loaded* list is stale (deleted in Discord) or invisible
+	// to the bot. Either way the admin must be able to keep or clear it, never have
+	// the form silently reassign it.
+	const isUnresolved = !isLoading && value.length > 0 && selected === undefined
+	const isPending = isLoading && value.length > 0
 
 	const close = (id: string) => {
 		onChange(id)
@@ -100,6 +113,8 @@ function Picker<T extends INamed>({
 							renderTrigger(selected)
 						) : isUnresolved ? (
 							<span className="font-mono text-xs">{value} (not visible to the bot)</span>
+						) : isPending ? (
+							<span className="font-mono text-xs text-muted-foreground">{value}</span>
 						) : (
 							<span className="text-muted-foreground">{placeholder}</span>
 						)}
@@ -132,7 +147,9 @@ function Picker<T extends INamed>({
 
 				<div className="max-h-64 overflow-y-auto p-1">
 					{filtered.length === 0 ? (
-						<p className="px-2 py-6 text-center text-xs text-muted-foreground">{emptyLabel}</p>
+						<p className="px-2 py-6 text-center text-xs text-muted-foreground">
+							{isLoading ? "Loading roles and channels…" : emptyLabel}
+						</p>
 					) : (
 						filtered.map((entry) => (
 							<DropdownMenuItem key={entry.id} onSelect={() => close(entry.id)} className="gap-2">
@@ -166,6 +183,7 @@ export function RolePicker({
 	onChange,
 	roles,
 	disabled = false,
+	isLoading = false,
 	placeholder = "Pick a role",
 	/** Role ids the ladder owns, hidden because they are managed elsewhere. */
 	exclude = [],
@@ -174,6 +192,8 @@ export function RolePicker({
 	onChange: (roleId: string) => void
 	roles: IDirectoryRole[]
 	disabled?: boolean
+	/** Names are still being read, so an absent id is not yet a missing role. */
+	isLoading?: boolean
 	placeholder?: string
 	exclude?: string[]
 }) {
@@ -188,6 +208,7 @@ export function RolePicker({
 			onChange={onChange}
 			entries={options}
 			disabled={disabled}
+			isLoading={isLoading}
 			placeholder={placeholder}
 			emptyLabel={
 				options.length === 0 ? "No roles are visible to the bot." : "No role matches that name."
@@ -237,6 +258,7 @@ export function ChannelPicker({
 	onChange,
 	channels,
 	disabled = false,
+	isLoading = false,
 	placeholder = "Pick a channel",
 	allowNone = false,
 	noneLabel = "No channel",
@@ -245,6 +267,8 @@ export function ChannelPicker({
 	onChange: (channelId: string) => void
 	channels: IDirectoryChannel[]
 	disabled?: boolean
+	/** Names are still being read, so an absent id is not yet a missing channel. */
+	isLoading?: boolean
 	placeholder?: string
 	/** Offer an explicit "none" entry, for settings that are genuinely optional. */
 	allowNone?: boolean
@@ -256,6 +280,7 @@ export function ChannelPicker({
 			onChange={onChange}
 			entries={channels}
 			disabled={disabled}
+			isLoading={isLoading}
 			placeholder={placeholder}
 			emptyLabel={
 				channels.length === 0
@@ -298,14 +323,20 @@ export function ChannelPicker({
  * the short id is shown instead. That fallback matters: the row still points at a
  * real snowflake, and hiding it behind a blank cell would make a misconfigured
  * entry look like an empty one.
+ *
+ * `isLoading` separates "we have not read the names yet" from "this role is gone".
+ * A table renders its rows before the directory arrives, so without it every cell
+ * briefly claimed its role was missing.
  */
 export function RoleName({
 	roleId,
 	rolesById,
+	isLoading = false,
 	className,
 }: {
 	roleId: string
 	rolesById: Map<string, IDirectoryRole>
+	isLoading?: boolean
 	className?: string
 }) {
 	const role = rolesById.get(roleId)
@@ -314,9 +345,9 @@ export function RoleName({
 		return (
 			<span
 				className={cn("font-mono text-xs text-muted-foreground", className)}
-				title="Not visible to the bot"
+				title={isLoading ? "Loading role name…" : "Not visible to the bot"}
 			>
-				{shortId(roleId)}
+				{isLoading ? "…" : shortId(roleId)}
 			</span>
 		)
 	}

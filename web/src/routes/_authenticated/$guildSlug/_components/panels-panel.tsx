@@ -67,6 +67,7 @@ function PanelCard({
 	deniedReason,
 	roles,
 	rolesById,
+	rolesLoading,
 }: {
 	panel: IPanelSummaryResponse
 	guildId: string
@@ -74,6 +75,7 @@ function PanelCard({
 	deniedReason: string
 	roles: IDirectoryRole[]
 	rolesById: Map<string, IDirectoryRole>
+	rolesLoading: boolean
 }) {
 	const queryClient = useQueryClient()
 	const detail = useQuery(guildQueries.panel(guildId, panel.id))
@@ -189,6 +191,7 @@ function PanelCard({
 									<RoleName
 										roleId={option.role_id}
 										rolesById={rolesById}
+										isLoading={rolesLoading}
 										className="text-muted-foreground"
 									/>
 									<Badge variant="outline">{option.behavior}</Badge>
@@ -629,7 +632,7 @@ export function PanelsPanel({
 
 	// Role names for the option lists and the add-option dialog. A panel button
 	// grants a role by id, and a raw id says nothing about which role that is.
-	const { roles, rolesById } = useGuildDirectory(guildId)
+	const { roles, rolesById, isLoading: namesLoading } = useGuildDirectory(guildId)
 
 	const [creating, setCreating] = useState(false)
 
@@ -689,6 +692,7 @@ export function PanelsPanel({
 						deniedReason={deniedReason}
 						roles={roles}
 						rolesById={rolesById}
+						rolesLoading={namesLoading}
 					/>
 				))}
 			</div>

@@ -53,7 +53,7 @@ export function ShopItemsPanel({
 
 	// Role names for the table and the item dialog. A shop item can award a role,
 	// and a short id in the table does not say which role that is.
-	const { roles, rolesById } = useGuildDirectory(guildId)
+	const { roles, rolesById, isLoading: namesLoading } = useGuildDirectory(guildId)
 
 	const [dialogOpen, setDialogOpen] = useState(false)
 	const [editing, setEditing] = useState<IShopItemResponse | undefined>(undefined)
@@ -130,7 +130,7 @@ export function ShopItemsPanel({
 				item.role_id === null ? (
 					<span className="text-muted-foreground">—</span>
 				) : (
-					<RoleName roleId={item.role_id} rolesById={rolesById} />
+					<RoleName roleId={item.role_id} rolesById={rolesById} isLoading={namesLoading} />
 				),
 		},
 		{
@@ -264,6 +264,7 @@ export function ShopItemsPanel({
 				isPending={createMutation.isPending || updateMutation.isPending}
 				submitError={createMutation.error ?? updateMutation.error}
 				roles={assignableRoles(roles)}
+				rolesLoading={namesLoading}
 				onSubmit={(payload) => {
 					if (editing) updateMutation.mutate({ id: editing.id, body: payload })
 					else createMutation.mutate(payload)

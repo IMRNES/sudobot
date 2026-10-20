@@ -95,7 +95,7 @@ export function AutorolesPanel({
 
 	// Role names for the table and the create/edit dialog. An autorole is a role id,
 	// and a table of raw ids tells an admin nothing about what is configured.
-	const { roles, rolesById, isUnavailable } = useGuildDirectory(guildId)
+	const { roles, rolesById, isLoading: namesLoading, isUnavailable } = useGuildDirectory(guildId)
 
 	const [dialogOpen, setDialogOpen] = useState(false)
 	const [editing, setEditing] = useState<IAutoRoleResponse | undefined>(undefined)
@@ -148,7 +148,9 @@ export function AutorolesPanel({
 		{
 			id: "role",
 			header: "Role",
-			cell: (rule) => <RoleName roleId={rule.role_id} rolesById={rolesById} />,
+			cell: (rule) => (
+				<RoleName roleId={rule.role_id} rolesById={rolesById} isLoading={namesLoading} />
+			),
 		},
 		{
 			id: "trigger",
@@ -310,6 +312,7 @@ export function AutorolesPanel({
 				isPending={createMutation.isPending || updateMutation.isPending}
 				submitError={createMutation.error ?? updateMutation.error}
 				roles={assignableRoles(roles)}
+				rolesLoading={namesLoading}
 				onSubmit={(payload) => {
 					if (editing) {
 						updateMutation.mutate({
@@ -364,6 +367,7 @@ function AutoroleDialog({
 	isPending,
 	submitError,
 	roles,
+	rolesLoading,
 }: {
 	open: boolean
 	onOpenChange: (open: boolean) => void
@@ -372,6 +376,7 @@ function AutoroleDialog({
 	isPending: boolean
 	submitError: unknown
 	roles: IDirectoryRole[]
+	rolesLoading: boolean
 }) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -392,6 +397,7 @@ function AutoroleDialog({
 						isPending={isPending}
 						submitError={submitError}
 						roles={roles}
+						rolesLoading={rolesLoading}
 					/>
 				) : null}
 			</DialogContent>
@@ -406,6 +412,7 @@ function AutoroleForm({
 	isPending,
 	submitError,
 	roles,
+	rolesLoading,
 }: {
 	rule?: IAutoRoleResponse
 	onSubmit: (payload: IAutoRoleCreateRequest) => void
@@ -413,6 +420,7 @@ function AutoroleForm({
 	isPending: boolean
 	submitError: unknown
 	roles: IDirectoryRole[]
+	rolesLoading: boolean
 }) {
 	const [values, setValues] = useState<IAutoroleFormValues>({
 		role_id: rule?.role_id ?? "",
@@ -462,6 +470,7 @@ function AutoroleForm({
 						setRoleError(undefined)
 					}}
 					roles={roles}
+					isLoading={rolesLoading}
 					placeholder="Pick the role to grant"
 				/>
 			</FormField>

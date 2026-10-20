@@ -79,6 +79,7 @@ export function ItemDialog({
 	isPending,
 	submitError,
 	roles,
+	rolesLoading,
 }: {
 	open: boolean
 	onOpenChange: (open: boolean) => void
@@ -88,6 +89,8 @@ export function ItemDialog({
 	isPending: boolean
 	submitError: unknown
 	roles: IDirectoryRole[]
+	/** Role names are still being read, so an absent id is not a missing role. */
+	rolesLoading: boolean
 }) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -110,6 +113,7 @@ export function ItemDialog({
 					isPending={isPending}
 					submitError={submitError}
 					roles={roles}
+					rolesLoading={rolesLoading}
 				/>
 			</DialogContent>
 		</Dialog>
@@ -124,6 +128,7 @@ function ItemForm({
 	isPending,
 	submitError,
 	roles,
+	rolesLoading,
 }: {
 	mode: "create" | "edit"
 	item?: IShopItemResponse
@@ -132,6 +137,7 @@ function ItemForm({
 	isPending: boolean
 	submitError: unknown
 	roles: IDirectoryRole[]
+	rolesLoading: boolean
 }) {
 	const form = useForm({
 		defaultValues: item ? toItemFormValues(item) : EMPTY_ITEM,
@@ -289,6 +295,7 @@ function ItemForm({
 								value={field.state.value}
 								onChange={field.handleChange}
 								roles={roles}
+								isLoading={rolesLoading}
 								placeholder="No role"
 							/>
 						</FormField>

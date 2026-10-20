@@ -96,7 +96,7 @@ function WelcomeForm({
 	// admin to paste a snowflake, which is the work of reading Discord handed to them.
 	// Filtered to the types the bot can actually post to, so a category or a voice
 	// room is never offered as a destination.
-	const { channels } = useGuildDirectory(guildId)
+	const { channels, isLoading: namesLoading } = useGuildDirectory(guildId)
 	const postable = announceableChannels(channels)
 
 	const save = useMutation({
@@ -195,6 +195,7 @@ function WelcomeForm({
 												value={field.state.value}
 												onChange={field.handleChange}
 												channels={postable}
+												isLoading={namesLoading}
 												disabled={!canWrite}
 												placeholder="No channel"
 												allowNone
@@ -411,6 +412,7 @@ function WelcomeForm({
 												value={field.state.value}
 												onChange={field.handleChange}
 												channels={postable}
+												isLoading={namesLoading}
 												disabled={!canWrite}
 												placeholder="No channel"
 												allowNone

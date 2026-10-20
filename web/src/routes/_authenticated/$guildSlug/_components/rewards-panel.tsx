@@ -57,7 +57,7 @@ export function RewardsPanel({
 
 	// Role names for the table and the picker. A reward points at a role by id, and
 	// an id in a table column tells an admin nothing about what they configured.
-	const { roles, rolesById, isUnavailable } = useGuildDirectory(guildId)
+	const { roles, rolesById, isLoading: namesLoading, isUnavailable } = useGuildDirectory(guildId)
 
 	const [dialogOpen, setDialogOpen] = useState(false)
 	const [deleting, setDeleting] = useState<IRewardResponse | null>(null)
@@ -92,7 +92,9 @@ export function RewardsPanel({
 		{
 			id: "role",
 			header: "Role",
-			cell: (reward) => <RoleName roleId={reward.role_id} rolesById={rolesById} />,
+			cell: (reward) => (
+				<RoleName roleId={reward.role_id} rolesById={rolesById} isLoading={namesLoading} />
+			),
 		},
 		{
 			id: "keep",
@@ -180,6 +182,7 @@ export function RewardsPanel({
 				submitError={createMutation.error}
 				onSubmit={(body) => createMutation.mutate(body)}
 				roles={assignableRoles(roles)}
+				rolesLoading={namesLoading}
 			/>
 
 			<ConfirmDialog
@@ -213,6 +216,7 @@ function RewardDialog({
 	isPending,
 	submitError,
 	roles,
+	rolesLoading,
 }: {
 	open: boolean
 	onOpenChange: (open: boolean) => void
@@ -220,6 +224,7 @@ function RewardDialog({
 	isPending: boolean
 	submitError: unknown
 	roles: IDirectoryRole[]
+	rolesLoading: boolean
 }) {
 	const form = useForm({
 		defaultValues: { level: "", role_id: "", keep_on_demote: true },
@@ -299,6 +304,7 @@ function RewardDialog({
 										value={field.state.value}
 										onChange={field.handleChange}
 										roles={roles}
+										isLoading={rolesLoading}
 										placeholder="Pick the role to grant"
 									/>
 								</FormField>
