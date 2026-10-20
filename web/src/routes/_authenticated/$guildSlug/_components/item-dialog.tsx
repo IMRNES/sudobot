@@ -1,4 +1,5 @@
 import { useForm } from "@tanstack/react-form"
+import { RolePicker } from "#/components/features/discord-pickers.tsx"
 import { FormField, FormRow } from "#/components/features/form-field.tsx"
 import { FormError } from "#/components/features/query-boundary.tsx"
 import { Button } from "#/components/ui/button.tsx"
@@ -12,7 +13,7 @@ import {
 } from "#/components/ui/dialog.tsx"
 import { Input } from "#/components/ui/input.tsx"
 import { Textarea } from "#/components/ui/textarea.tsx"
-import type { IShopItemCreateRequest, IShopItemResponse } from "#/libs/api/types.ts"
+import type { IDirectoryRole, IShopItemCreateRequest, IShopItemResponse } from "#/libs/api/types.ts"
 
 /**
  * Create / edit dialog for a shop item.
@@ -77,6 +78,7 @@ export function ItemDialog({
 	onSubmit,
 	isPending,
 	submitError,
+	roles,
 }: {
 	open: boolean
 	onOpenChange: (open: boolean) => void
@@ -85,6 +87,7 @@ export function ItemDialog({
 	onSubmit: (payload: IShopItemCreateRequest) => void
 	isPending: boolean
 	submitError: unknown
+	roles: IDirectoryRole[]
 }) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -106,6 +109,7 @@ export function ItemDialog({
 					onCancel={() => onOpenChange(false)}
 					isPending={isPending}
 					submitError={submitError}
+					roles={roles}
 				/>
 			</DialogContent>
 		</Dialog>
@@ -119,6 +123,7 @@ function ItemForm({
 	onCancel,
 	isPending,
 	submitError,
+	roles,
 }: {
 	mode: "create" | "edit"
 	item?: IShopItemResponse
@@ -126,6 +131,7 @@ function ItemForm({
 	onCancel: () => void
 	isPending: boolean
 	submitError: unknown
+	roles: IDirectoryRole[]
 }) {
 	const form = useForm({
 		defaultValues: item ? toItemFormValues(item) : EMPTY_ITEM,
@@ -274,19 +280,16 @@ function ItemForm({
 				>
 					{(field) => (
 						<FormField
-							label="Role id"
+							label="Role"
 							htmlFor={field.name}
-							description="Granted on purchase."
+							description="Granted on purchase. Leave blank for a cosmetic item."
 							error={field.state.meta.errors[0]?.toString()}
 						>
-							<Input
-								id={field.name}
+							<RolePicker
 								value={field.state.value}
-								onBlur={field.handleBlur}
-								onChange={(event) => field.handleChange(event.target.value)}
-								placeholder="456789012345678901"
-								inputMode="numeric"
-								className="font-mono"
+								onChange={field.handleChange}
+								roles={roles}
+								placeholder="No role"
 							/>
 						</FormField>
 					)}

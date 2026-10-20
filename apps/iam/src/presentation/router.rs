@@ -113,6 +113,9 @@ fn guild_scoped_routes() -> Router<AppState> {
             "/",
             get(handlers::guild::detail).patch(handlers::guild::update),
         )
+        // Literal segment, so it must be declared before any `/{id}` sibling could
+        // swallow it — same reason `/permissions` and `/roles` are nested here.
+        .route("/directory", get(handlers::guild::directory))
         .nest("/members", member_routes())
         .nest("/permissions", permission_routes())
         .nest("/roles", role_routes())

@@ -211,6 +211,28 @@ impl From<GuildError> for AppError {
     }
 }
 
+impl From<crate::application::ports::DirectoryError> for AppError {
+    fn from(error: crate::application::ports::DirectoryError) -> Self {
+        use crate::application::ports::DirectoryError;
+
+        match error {
+            // A missing bot token is a deployment gap: the caller did nothing wrong
+            // and retrying will not help, so it is a 503 whose message names the
+            // missing half rather than a 401 that reads as a bad login.
+            DirectoryError::NotConfigured => Self::Unavailable(error.to_string()),
+            // Discord refused or is unreachable. Neither is the caller's fault, and
+            // the dashboard can still render ids without names, so this is a 503
+            // rather than a 500 — the page degrades instead of failing.
+            DirectoryError::Api(_) | DirectoryError::Transport(_) => {
+                Self::Unavailable(error.to_string())
+            }
+            DirectoryError::MalformedResponse(detail) => Self::Internal(format!(
+                "discord returned a directory we could not read: {detail}"
+            )),
+        }
+    }
+}
+
 impl From<GuildMemberError> for AppError {
     fn from(error: GuildMemberError) -> Self {
         match error {

@@ -40,6 +40,24 @@ export const guildQueries = {
 			staleTime: CONFIG_STALE_TIME,
 		}),
 
+	/**
+	 * Role and channel names for every picker in this guild.
+	 *
+	 * `Infinity` rather than a timer: the list only changes when someone edits
+	 * roles in Discord, and re-reading it on every config page would spend a
+	 * Discord round trip per navigation to answer a question whose answer did not
+	 * move. The dashboard's own "Refresh names" control invalidates it explicitly.
+	 */
+	directory: (guildId: string) =>
+		queryOptions({
+			queryKey: queryKeys.guilds.directory(guildId),
+			queryFn: ({ signal }) => guildsApi.directory(guildId, { signal }),
+			staleTime: Number.POSITIVE_INFINITY,
+			// A deployment with no bot token cannot answer this, and a retry loop
+			// would just repeat a 503 that will never become a 200.
+			retry: false,
+		}),
+
 	/* ---------------------------------------------------------------- members */
 
 	members: (guildId: string, params: IListParams) =>

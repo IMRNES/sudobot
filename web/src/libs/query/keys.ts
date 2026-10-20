@@ -26,6 +26,14 @@ export const queryKeys = {
 		detail: (guildId: string) => [...queryKeys.guilds.all, "detail", guildId] as const,
 		/** Prefix used to invalidate every cached page of the list at once. */
 		lists: () => [...queryKeys.guilds.all, "list"] as const,
+		/**
+		 * Role and channel names for this guild's pickers.
+		 *
+		 * Cached for the session: it changes only when an admin edits roles or
+		 * channels in Discord, and a refetch on every config page would spend a
+		 * Discord round trip per navigation to learn the same names.
+		 */
+		directory: (guildId: string) => [...queryKeys.guilds.all, "directory", guildId] as const,
 	},
 
 	members: {

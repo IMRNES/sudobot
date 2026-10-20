@@ -15,4 +15,4 @@ pub mod auth;
 pub mod permission;
 
 pub use auth::{AuthenticatedUser, attach_auth};
-pub use permission::{GuildContext, ensure_permission, load_guild_context};
+pub use permission::{GuildContext, ensure_any_permission, ensure_permission, load_guild_context};

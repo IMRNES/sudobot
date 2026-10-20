@@ -6,6 +6,7 @@ import type {
 	IAutoRoleResponse,
 	IEconomyLeaderboardEntryResponse,
 	IGuildDetail,
+	IGuildDirectoryResponse,
 	IGuildSummary,
 	ILeaderboardEntryResponse,
 	ILevelingConfigResponse,
@@ -61,6 +62,10 @@ export const guildsApi = {
 
 	update: (guildId: string, body: { name: string }) =>
 		api.patch<IGuildDetail>(`/guilds/${guildId}`, { body }),
+
+	/** Role and channel names, so pickers can show "@Neophyte" not a snowflake. */
+	directory: (guildId: string, options: TSignal = {}) =>
+		api.get<IGuildDirectoryResponse>(`/guilds/${guildId}/directory`, options),
 }
 
 /* -------------------------------------------------------------------------- */

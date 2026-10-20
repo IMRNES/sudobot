@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { MousePointerClick, Pencil, Plus, Send, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
+import { RoleName, RolePicker } from "#/components/features/discord-pickers.tsx"
 import { EmptyState } from "#/components/features/empty-state.tsx"
 import { FormField } from "#/components/features/form-field.tsx"
 import { PermissionButton } from "#/components/features/permission-button.tsx"
@@ -25,8 +26,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "#/components/ui/select.tsx"
+import { assignableRoles, useGuildDirectory } from "#/hooks/use-guild-directory.ts"
 import { panelsApi } from "#/libs/api/resources.ts"
 import type {
+	IDirectoryRole,
 	IPanelCreateRequest,
 	IPanelResponse,
 	IPanelSummaryResponse,
@@ -62,11 +65,15 @@ function PanelCard({
 	guildId,
 	canWrite,
 	deniedReason,
+	roles,
+	rolesById,
 }: {
 	panel: IPanelSummaryResponse
 	guildId: string
 	canWrite: boolean
 	deniedReason: string
+	roles: IDirectoryRole[]
+	rolesById: Map<string, IDirectoryRole>
 }) {
 	const queryClient = useQueryClient()
 	const detail = useQuery(guildQueries.panel(guildId, panel.id))
@@ -179,7 +186,11 @@ function PanelCard({
 								<span className="flex items-center gap-2">
 									{option.emoji ? <span>{option.emoji}</span> : null}
 									<span className="font-medium">{option.label}</span>
-									<span className="font-mono text-xs text-muted-foreground">{option.role_id}</span>
+									<RoleName
+										roleId={option.role_id}
+										rolesById={rolesById}
+										className="text-muted-foreground"
+									/>
 									<Badge variant="outline">{option.behavior}</Badge>
 								</span>
 								<Button
@@ -224,6 +235,7 @@ function PanelCard({
 				pending={addOption.isPending}
 				error={addOption.error}
 				onSubmit={(body) => addOption.mutate(body)}
+				roles={assignableRoles(roles)}
 			/>
 
 			<PublishDialog
@@ -255,11 +267,13 @@ function OptionDialog({
 	pending,
 	error,
 	onSubmit,
+	roles,
 }: {
 	open: boolean
 	onOpenChange: (open: boolean) => void
 	pending: boolean
 	error: unknown
+	roles: IDirectoryRole[]
 	onSubmit: (body: {
 		label: string
 		role_id: string
@@ -309,12 +323,12 @@ function OptionDialog({
 						/>
 					</FormField>
 
-					<FormField label="Role id" htmlFor="option-role">
-						<Input
-							id="option-role"
+					<FormField label="Role" htmlFor="option-role" description="The role this button grants.">
+						<RolePicker
 							value={roleId}
-							onChange={(event) => setRoleId(event.target.value)}
-							placeholder="456789012345678901"
+							onChange={setRoleId}
+							roles={roles}
+							placeholder="Pick the role this button grants"
 						/>
 					</FormField>
 
@@ -613,6 +627,10 @@ export function PanelsPanel({
 	const query = useQuery(guildQueries.panels(guildId, {}))
 	const panels = query.data?.data ?? []
 
+	// Role names for the option lists and the add-option dialog. A panel button
+	// grants a role by id, and a raw id says nothing about which role that is.
+	const { roles, rolesById } = useGuildDirectory(guildId)
+
 	const [creating, setCreating] = useState(false)
 
 	const create = useMutation({
@@ -669,6 +687,8 @@ export function PanelsPanel({
 						guildId={guildId}
 						canWrite={canWrite}
 						deniedReason={deniedReason}
+						roles={roles}
+						rolesById={rolesById}
 					/>
 				))}
 			</div>

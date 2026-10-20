@@ -110,6 +110,27 @@ pub fn ensure_permissions(context: &GuildContext, required: &[&str]) -> Result<(
     Ok(())
 }
 
+/// Refuses the request unless the caller holds **at least one** named permission.
+///
+/// For reference data that several features share. The guild directory — role and
+/// channel names — is read by every configuration screen, so gating it on any one
+/// of their read permissions would 403 a role built for a single feature, and the
+/// page whose picker needed it would fail for no reason the admin could see.
+pub fn ensure_any_permission(context: &GuildContext, any_of: &[&str]) -> Result<(), AppError> {
+    if any_of.iter().any(|permission| context.allows(permission)) {
+        return Ok(());
+    }
+
+    tracing::warn!(
+        guild_id = context.guild_id,
+        user_id = %context.access.user_id,
+        required = ?any_of,
+        "permission denied: none of the accepted permissions held"
+    );
+
+    Err(AppError::Forbidden(PERMISSION_DENIED.to_string()))
+}
+
 /// The permissions a caller holds, for the `/me` payload.
 ///
 /// Exposed so the dashboard can hide or disable controls without a second request
@@ -156,5 +177,33 @@ mod tests {
         // The escape hatch that keeps a broken matrix from bricking a guild.
         let context = context_with(&[], true);
         assert!(ensure_permission(&context, "dashboard:manage").is_ok());
+    }
+
+    #[test]
+    fn any_permission_admits_any_one_of_them() {
+        // The directory endpoint's gate: a role scoped to a single feature still
+        // needs role and channel names to render its own picker.
+        let context = context_with(&["welcome:read"], false);
+        assert!(
+            ensure_any_permission(&context, &["leveling:read", "welcome:read"]).is_ok(),
+            "holding one of the accepted permissions is enough"
+        );
+    }
+
+    #[test]
+    fn any_permission_refuses_when_none_are_held() {
+        let context = context_with(&["economy:write"], false);
+        assert!(
+            ensure_any_permission(&context, &["leveling:read", "welcome:read"]).is_err(),
+            "a write permission is not a read permission"
+        );
+    }
+
+    #[test]
+    fn any_permission_refuses_an_empty_list() {
+        // Defensive: an empty list would otherwise be vacuously allowed and turn
+        // this helper into an open door.
+        let context = context_with(&["dashboard:manage"], false);
+        assert!(ensure_any_permission(&context, &[]).is_err());
     }
 }

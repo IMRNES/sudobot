@@ -22,7 +22,7 @@ import { cn } from "#/libs/utils.ts"
 
 interface INavItem {
 	label: string
-	/** Path segment appended to `/guilds/{id}`; empty for the overview. */
+	/** Path segment appended to `/$guildSlug`; empty for the overview. */
 	segment: string
 	icon: React.ComponentType<{ className?: string }>
 	/** Permission required to *see* the entry. Absent means always visible. */
@@ -103,9 +103,6 @@ function AccountNav({ onNavigate }: { onNavigate?: () => void }) {
 	return (
 		<ul className="flex flex-col gap-0.5">
 			<NavLink to="/dashboard" icon={LayoutDashboard} onClick={onNavigate}>
-				Dashboard
-			</NavLink>
-			<NavLink to="/dashboard" icon={Users} onClick={onNavigate}>
 				Your servers
 			</NavLink>
 		</ul>
@@ -124,6 +121,10 @@ function GuildNav({ guild, onNavigate }: { guild: IGuildSummary; onNavigate?: ()
 					to={item.segment === "" ? "/$guildSlug" : `/$guildSlug/${item.segment}`}
 					params={{ guildSlug: guild.id }}
 					icon={item.icon}
+					// The overview is the parent path of every sibling, so only it
+					// needs an exact match; the others are distinct leaves and a
+					// prefix match cannot collide with one another.
+					exact={item.segment === ""}
 					onClick={onNavigate}
 				>
 					{item.label}
@@ -137,12 +138,15 @@ function NavLink({
 	to,
 	params,
 	icon: Icon,
+	exact = false,
 	children,
 	onClick,
 }: {
 	to: string
 	params?: Record<string, string>
 	icon: React.ComponentType<{ className?: string }>
+	/** Match the whole path rather than treating this link as a prefix. */
+	exact?: boolean
 	children: React.ReactNode
 	onClick?: () => void
 }) {
@@ -154,7 +158,7 @@ function NavLink({
 				to={to as never}
 				params={params as never}
 				onClick={onClick}
-				activeOptions={{ exact: to === "/guilds/$guildSlug" }}
+				activeOptions={{ exact }}
 				className={cn(
 					"flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-sidebar-foreground/75 transition-colors",
 					"hover:bg-sidebar-accent hover:text-sidebar-foreground",

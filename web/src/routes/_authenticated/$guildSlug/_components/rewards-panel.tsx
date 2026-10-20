@@ -4,6 +4,11 @@ import { Award, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { ConfirmDialog } from "#/components/features/confirm-dialog.tsx"
 import { DataTable, type IDataTableColumn } from "#/components/features/data-table.tsx"
+import {
+	DirectoryUnavailableNotice,
+	RoleName,
+	RolePicker,
+} from "#/components/features/discord-pickers.tsx"
 import { EmptyState } from "#/components/features/empty-state.tsx"
 import { FormField, FormRow } from "#/components/features/form-field.tsx"
 import { PermissionButton } from "#/components/features/permission-button.tsx"
@@ -22,8 +27,9 @@ import {
 import { Input } from "#/components/ui/input.tsx"
 import { Label } from "#/components/ui/label.tsx"
 import { Switch } from "#/components/ui/switch.tsx"
+import { assignableRoles, useGuildDirectory } from "#/hooks/use-guild-directory.ts"
 import { levelingApi } from "#/libs/api/resources.ts"
-import type { IRewardCreateRequest, IRewardResponse } from "#/libs/api/types.ts"
+import type { IDirectoryRole, IRewardCreateRequest, IRewardResponse } from "#/libs/api/types.ts"
 import { queryKeys } from "#/libs/query/keys.ts"
 import { formatNumber, shortId } from "#/libs/utils.ts"
 import { guildQueries } from "#/routes/_authenticated/$guildSlug/_data/queries.ts"
@@ -48,6 +54,10 @@ export function RewardsPanel({
 	const queryClient = useQueryClient()
 	const query = useQuery(guildQueries.rewards(guildId, { per_page: 100 }))
 	const rewards = query.data?.data ?? []
+
+	// Role names for the table and the picker. A reward points at a role by id, and
+	// an id in a table column tells an admin nothing about what they configured.
+	const { roles, rolesById, isUnavailable } = useGuildDirectory(guildId)
 
 	const [dialogOpen, setDialogOpen] = useState(false)
 	const [deleting, setDeleting] = useState<IRewardResponse | null>(null)
@@ -81,8 +91,8 @@ export function RewardsPanel({
 		},
 		{
 			id: "role",
-			header: "Role id",
-			cell: (reward) => <span className="font-mono text-xs">{reward.role_id}</span>,
+			header: "Role",
+			cell: (reward) => <RoleName roleId={reward.role_id} rolesById={rolesById} />,
 		},
 		{
 			id: "keep",
@@ -118,6 +128,9 @@ export function RewardsPanel({
 				<div className="flex flex-col gap-1">
 					<CardTitle className="text-base">Level rewards</CardTitle>
 					<CardDescription>The role a member is granted on reaching each level.</CardDescription>
+					{/* The table falls back to short ids when names cannot be read, so say
+					    so rather than leaving the reader to guess what they are. */}
+					{isUnavailable ? <DirectoryUnavailableNotice /> : null}
 				</div>
 				<PermissionButton
 					allowed={canWrite}
@@ -166,6 +179,7 @@ export function RewardsPanel({
 				isPending={createMutation.isPending}
 				submitError={createMutation.error}
 				onSubmit={(body) => createMutation.mutate(body)}
+				roles={assignableRoles(roles)}
 			/>
 
 			<ConfirmDialog
@@ -198,12 +212,14 @@ function RewardDialog({
 	onSubmit,
 	isPending,
 	submitError,
+	roles,
 }: {
 	open: boolean
 	onOpenChange: (open: boolean) => void
 	onSubmit: (body: IRewardCreateRequest) => void
 	isPending: boolean
 	submitError: unknown
+	roles: IDirectoryRole[]
 }) {
 	const form = useForm({
 		defaultValues: { level: "", role_id: "", keep_on_demote: true },
@@ -274,19 +290,16 @@ function RewardDialog({
 						>
 							{(field) => (
 								<FormField
-									label="Role id"
+									label="Role"
 									htmlFor={field.name}
 									required
 									error={field.state.meta.errors[0]?.toString()}
 								>
-									<Input
-										id={field.name}
+									<RolePicker
 										value={field.state.value}
-										onBlur={field.handleBlur}
-										onChange={(event) => field.handleChange(event.target.value)}
-										placeholder="456789012345678901"
-										inputMode="numeric"
-										className="font-mono"
+										onChange={field.handleChange}
+										roles={roles}
+										placeholder="Pick the role to grant"
 									/>
 								</FormField>
 							)}

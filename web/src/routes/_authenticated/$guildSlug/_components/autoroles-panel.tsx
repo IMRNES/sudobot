@@ -4,6 +4,11 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { ConfirmDialog } from "#/components/features/confirm-dialog.tsx"
 import { DataTable, type IDataTableColumn } from "#/components/features/data-table.tsx"
+import {
+	DirectoryUnavailableNotice,
+	RoleName,
+	RolePicker,
+} from "#/components/features/discord-pickers.tsx"
 import { EmptyState } from "#/components/features/empty-state.tsx"
 import { FormField, FormRow } from "#/components/features/form-field.tsx"
 import { Pagination } from "#/components/features/pagination.tsx"
@@ -37,11 +42,13 @@ import {
 	SelectValue,
 } from "#/components/ui/select.tsx"
 import { Switch } from "#/components/ui/switch.tsx"
+import { assignableRoles, useGuildDirectory } from "#/hooks/use-guild-directory.ts"
 import { useTableSearch } from "#/hooks/use-table-search.ts"
 import { autorolesApi } from "#/libs/api/resources.ts"
 import type {
 	IAutoRoleCreateRequest,
 	IAutoRoleResponse,
+	IDirectoryRole,
 	TAutoRoleTrigger,
 } from "#/libs/api/types.ts"
 import { normalizeApiError } from "#/libs/errors/index.ts"
@@ -85,6 +92,10 @@ export function AutorolesPanel({
 	const query = useQuery(guildQueries.autoroles(guildId, table.params))
 	const autoroles = query.data?.data ?? []
 	const meta = query.data?.meta
+
+	// Role names for the table and the create/edit dialog. An autorole is a role id,
+	// and a table of raw ids tells an admin nothing about what is configured.
+	const { roles, rolesById, isUnavailable } = useGuildDirectory(guildId)
 
 	const [dialogOpen, setDialogOpen] = useState(false)
 	const [editing, setEditing] = useState<IAutoRoleResponse | undefined>(undefined)
@@ -136,8 +147,8 @@ export function AutorolesPanel({
 	const columns: IDataTableColumn<IAutoRoleResponse>[] = [
 		{
 			id: "role",
-			header: "Role id",
-			cell: (rule) => <span className="font-mono text-xs">{rule.role_id}</span>,
+			header: "Role",
+			cell: (rule) => <RoleName roleId={rule.role_id} rolesById={rolesById} />,
 		},
 		{
 			id: "trigger",
@@ -214,6 +225,9 @@ export function AutorolesPanel({
 	return (
 		<Card>
 			<CardHeader className="gap-4">
+				{/* The table falls back to short ids when names cannot be read, so say
+				    so rather than leaving the reader to guess what they are. */}
+				{isUnavailable ? <DirectoryUnavailableNotice /> : null}
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<CardTitle className="text-base">Rules</CardTitle>
 					<PermissionButton
@@ -295,6 +309,7 @@ export function AutorolesPanel({
 				rule={editing}
 				isPending={createMutation.isPending || updateMutation.isPending}
 				submitError={createMutation.error ?? updateMutation.error}
+				roles={assignableRoles(roles)}
 				onSubmit={(payload) => {
 					if (editing) {
 						updateMutation.mutate({
@@ -348,6 +363,7 @@ function AutoroleDialog({
 	onSubmit,
 	isPending,
 	submitError,
+	roles,
 }: {
 	open: boolean
 	onOpenChange: (open: boolean) => void
@@ -355,6 +371,7 @@ function AutoroleDialog({
 	onSubmit: (payload: IAutoRoleCreateRequest) => void
 	isPending: boolean
 	submitError: unknown
+	roles: IDirectoryRole[]
 }) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -374,6 +391,7 @@ function AutoroleDialog({
 						onCancel={() => onOpenChange(false)}
 						isPending={isPending}
 						submitError={submitError}
+						roles={roles}
 					/>
 				) : null}
 			</DialogContent>
@@ -387,12 +405,14 @@ function AutoroleForm({
 	onCancel,
 	isPending,
 	submitError,
+	roles,
 }: {
 	rule?: IAutoRoleResponse
 	onSubmit: (payload: IAutoRoleCreateRequest) => void
 	onCancel: () => void
 	isPending: boolean
 	submitError: unknown
+	roles: IDirectoryRole[]
 }) {
 	const [values, setValues] = useState<IAutoroleFormValues>({
 		role_id: rule?.role_id ?? "",
@@ -434,17 +454,15 @@ function AutoroleForm({
 				submit()
 			}}
 		>
-			<FormField label="Role id" htmlFor="autorole-role" required error={roleError}>
-				<Input
-					id="autorole-role"
+			<FormField label="Role" htmlFor="autorole-role" required error={roleError}>
+				<RolePicker
 					value={values.role_id}
-					onChange={(event) => {
-						setValues((v) => ({ ...v, role_id: event.target.value }))
+					onChange={(roleId) => {
+						setValues((v) => ({ ...v, role_id: roleId }))
 						setRoleError(undefined)
 					}}
-					placeholder="456789012345678901"
-					inputMode="numeric"
-					className="font-mono"
+					roles={roles}
+					placeholder="Pick the role to grant"
 				/>
 			</FormField>
 

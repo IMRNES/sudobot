@@ -3,6 +3,7 @@ import { MoreHorizontal, Package, Pencil, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { ConfirmDialog } from "#/components/features/confirm-dialog.tsx"
 import { DataTable, type IDataTableColumn } from "#/components/features/data-table.tsx"
+import { RoleName } from "#/components/features/discord-pickers.tsx"
 import { EmptyState } from "#/components/features/empty-state.tsx"
 import { Pagination } from "#/components/features/pagination.tsx"
 import { PermissionButton } from "#/components/features/permission-button.tsx"
@@ -16,11 +17,12 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu.tsx"
+import { assignableRoles, useGuildDirectory } from "#/hooks/use-guild-directory.ts"
 import { useTableSearch } from "#/hooks/use-table-search.ts"
 import { economyApi } from "#/libs/api/resources.ts"
 import type { IShopItemResponse } from "#/libs/api/types.ts"
 import { queryKeys } from "#/libs/query/keys.ts"
-import { formatNumber, shortId } from "#/libs/utils.ts"
+import { formatNumber } from "#/libs/utils.ts"
 import { ItemDialog } from "#/routes/_authenticated/$guildSlug/_components/item-dialog.tsx"
 import { guildQueries } from "#/routes/_authenticated/$guildSlug/_data/queries.ts"
 import { useInvalidatingMutation } from "#/routes/_authenticated/$guildSlug/_hooks/use-invalidating-mutation.ts"
@@ -48,6 +50,10 @@ export function ShopItemsPanel({
 	const query = useQuery(guildQueries.items(guildId, table.params))
 	const items = query.data?.data ?? []
 	const meta = query.data?.meta
+
+	// Role names for the table and the item dialog. A shop item can award a role,
+	// and a short id in the table does not say which role that is.
+	const { roles, rolesById } = useGuildDirectory(guildId)
 
 	const [dialogOpen, setDialogOpen] = useState(false)
 	const [editing, setEditing] = useState<IShopItemResponse | undefined>(undefined)
@@ -124,7 +130,7 @@ export function ShopItemsPanel({
 				item.role_id === null ? (
 					<span className="text-muted-foreground">—</span>
 				) : (
-					<span className="font-mono text-xs">{shortId(item.role_id)}</span>
+					<RoleName roleId={item.role_id} rolesById={rolesById} />
 				),
 		},
 		{
@@ -257,6 +263,7 @@ export function ShopItemsPanel({
 				item={editing}
 				isPending={createMutation.isPending || updateMutation.isPending}
 				submitError={createMutation.error ?? updateMutation.error}
+				roles={assignableRoles(roles)}
 				onSubmit={(payload) => {
 					if (editing) updateMutation.mutate({ id: editing.id, body: payload })
 					else createMutation.mutate(payload)

@@ -1,6 +1,11 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+import {
+	ChannelPicker,
+	DirectoryUnavailableNotice,
+	RolePicker,
+} from "#/components/features/discord-pickers.tsx"
 import { FormField, FormRow } from "#/components/features/form-field.tsx"
 import { PermissionButton } from "#/components/features/permission-button.tsx"
 import { QueryBoundary } from "#/components/features/query-boundary.tsx"
@@ -15,6 +20,7 @@ import {
 	SelectValue,
 } from "#/components/ui/select.tsx"
 import { Switch } from "#/components/ui/switch.tsx"
+import { announceableChannels, useGuildDirectory } from "#/hooks/use-guild-directory.ts"
 import { levelingApi } from "#/libs/api/resources.ts"
 import type { ILevelingConfigResponse, TLevelingConfigUpdateRequest } from "#/libs/api/types.ts"
 import { normalizeApiError } from "#/libs/errors/index.ts"
@@ -33,7 +39,23 @@ import { guildQueries } from "#/routes/_authenticated/$guildSlug/_data/queries.t
  * mutations against the same key.
  */
 
-const CURVES = ["mrn", "linear", "flat"] as const
+const CURVES = [
+	{
+		value: "mrn",
+		label: "Standard",
+		hint: "The classic Discord curve — costs climb faster at every level.",
+	},
+	{
+		value: "linear",
+		label: "Linear",
+		hint: "A straight line: every level costs the same amount more than the last.",
+	},
+	{
+		value: "flat",
+		label: "Flat",
+		hint: "Every level costs the same 100 XP, so late levels stay cheap.",
+	},
+] as const
 
 export function LevelingConfigForm({
 	guildId,
@@ -86,6 +108,11 @@ function ConfigForm({
 }) {
 	const queryClient = useQueryClient()
 
+	// Names for the two id fields below. One request serves both, and the hook
+	// returns empty lists if the directory is unreachable, which leaves the pickers
+	// falling back to the raw id rather than blocking the form.
+	const { roles, channels, isUnavailable } = useGuildDirectory(guildId)
+
 	const save = useMutation({
 		mutationFn: (body: TLevelingConfigUpdateRequest) => levelingApi.updateConfig(guildId, body),
 		onSuccess: (updated) => {
@@ -133,6 +160,9 @@ function ConfigForm({
 
 	return (
 		<div className="flex flex-col gap-6">
+			{/* The form still works without names — the fields below fall back to raw
+			    ids — so this explains the degradation instead of hiding the controls. */}
+			{isUnavailable ? <DirectoryUnavailableNotice /> : null}
 			<div className="flex flex-col divide-y divide-border rounded-lg border border-border">
 				<ToggleRow
 					id="leveling-enabled"
@@ -306,14 +336,14 @@ function ConfigForm({
 								description="Where the bot announces a level-up. Leave empty for no announcement."
 								error={field.state.meta.errors[0]?.toString()}
 							>
-								<Input
-									id={field.name}
+								<ChannelPicker
 									value={field.state.value}
+									onChange={field.handleChange}
+									channels={announceableChannels(channels)}
 									disabled={!canWrite}
-									placeholder="123456789012345678"
-									onBlur={field.handleBlur}
-									onChange={(event) => field.handleChange(event.target.value)}
-									className="font-mono tabular-nums"
+									placeholder="No announcement"
+									allowNone
+									noneLabel="No announcement"
 								/>
 							</FormField>
 						)}
@@ -338,14 +368,12 @@ function ConfigForm({
 								description="Usually your server's default member role, so level roles rank above plain members. Leave empty to place the ladder directly above @everyone."
 								error={field.state.meta.errors[0]?.toString()}
 							>
-								<Input
-									id={field.name}
+								<RolePicker
 									value={field.state.value}
+									onChange={field.handleChange}
+									roles={roles}
 									disabled={!canWrite}
-									placeholder="1460146703637287115"
-									onBlur={field.handleBlur}
-									onChange={(event) => field.handleChange(event.target.value)}
-									className="font-mono tabular-nums"
+									placeholder="Directly above @everyone"
 								/>
 							</FormField>
 						)}
@@ -356,7 +384,10 @@ function ConfigForm({
 							<FormField
 								label="Level curve"
 								htmlFor={field.name}
-								description="How much XP each successive level costs."
+								description={
+									CURVES.find((curve) => curve.value === field.state.value)?.hint ??
+									"How much XP each successive level costs."
+								}
 							>
 								<Select
 									value={field.state.value}
@@ -368,8 +399,8 @@ function ConfigForm({
 									</SelectTrigger>
 									<SelectContent>
 										{CURVES.map((curve) => (
-											<SelectItem key={curve} value={curve}>
-												{curve}
+											<SelectItem key={curve.value} value={curve.value}>
+												{curve.label}
 											</SelectItem>
 										))}
 									</SelectContent>

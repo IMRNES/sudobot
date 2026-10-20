@@ -2,6 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { RefreshCw } from "lucide-react"
 import { toast } from "sonner"
+import { ChannelPicker } from "#/components/features/discord-pickers.tsx"
 import { FormField, FormRow } from "#/components/features/form-field.tsx"
 import { PermissionButton } from "#/components/features/permission-button.tsx"
 import { QueryBoundary } from "#/components/features/query-boundary.tsx"
@@ -11,6 +12,7 @@ import { Input } from "#/components/ui/input.tsx"
 import { Label } from "#/components/ui/label.tsx"
 import { Switch } from "#/components/ui/switch.tsx"
 import { Textarea } from "#/components/ui/textarea.tsx"
+import { announceableChannels, useGuildDirectory } from "#/hooks/use-guild-directory.ts"
 import { welcomeApi } from "#/libs/api/resources.ts"
 import {
 	type IWelcomeConfigResponse,
@@ -89,6 +91,13 @@ function WelcomeForm({
 	deniedReason: string
 }) {
 	const queryClient = useQueryClient()
+
+	// Channel names for the two channel fields below. Without this the form asks an
+	// admin to paste a snowflake, which is the work of reading Discord handed to them.
+	// Filtered to the types the bot can actually post to, so a category or a voice
+	// room is never offered as a destination.
+	const { channels } = useGuildDirectory(guildId)
+	const postable = announceableChannels(channels)
 
 	const save = useMutation({
 		mutationFn: welcomeApi.update.bind(null, guildId),
@@ -178,19 +187,17 @@ function WelcomeForm({
 								<form.Field name="welcome_channel_id">
 									{(field) => (
 										<FormField
-											label="Channel id"
+											label="Channel"
 											htmlFor={field.name}
 											description="Where the message is posted."
 										>
-											<Input
-												id={field.name}
+											<ChannelPicker
 												value={field.state.value}
+												onChange={field.handleChange}
+												channels={postable}
 												disabled={!canWrite}
-												onBlur={field.handleBlur}
-												onChange={(event) => field.handleChange(event.target.value)}
-												placeholder="123456789012345678"
-												inputMode="numeric"
-												className="font-mono"
+												placeholder="No channel"
+												allowNone
 											/>
 										</FormField>
 									)}
@@ -399,16 +406,14 @@ function WelcomeForm({
 							<FormRow>
 								<form.Field name="goodbye_channel_id">
 									{(field) => (
-										<FormField label="Channel id" htmlFor={field.name}>
-											<Input
-												id={field.name}
+										<FormField label="Channel" htmlFor={field.name}>
+											<ChannelPicker
 												value={field.state.value}
+												onChange={field.handleChange}
+												channels={postable}
 												disabled={!canWrite}
-												onBlur={field.handleBlur}
-												onChange={(event) => field.handleChange(event.target.value)}
-												placeholder="123456789012345678"
-												inputMode="numeric"
-												className="font-mono"
+												placeholder="No channel"
+												allowNone
 											/>
 										</FormField>
 									)}

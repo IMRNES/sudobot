@@ -4,15 +4,19 @@ use paginator_axum::PaginationQuery;
 use tracing::instrument;
 
 use crate::application::guild::{
-    GuildDetailUseCase, ListGuildsUseCase, UpdateGuildCommand, UpdateGuildUseCase,
+    GuildDetailUseCase, GuildDirectoryUseCase, ListGuildsUseCase, UpdateGuildCommand,
+    UpdateGuildUseCase,
 };
 use crate::domain::user::UserRepository;
 use crate::presentation::dto::PageResponse;
 use crate::presentation::dto::auth::{GuildResponse, UpdateGuildRequest};
+use crate::presentation::dto::guild::GuildDirectoryResponse;
 use crate::presentation::error::AppError;
 use crate::presentation::extract::ValidatedJson;
 use crate::presentation::handlers::authorize;
-use crate::presentation::middleware::AuthenticatedUser;
+use crate::presentation::middleware::{
+    AuthenticatedUser, ensure_any_permission, load_guild_context,
+};
 use crate::presentation::state::AppState;
 use crate::presentation::validation::guild_id_from_path;
 
@@ -80,4 +84,38 @@ pub async fn update(
         .await?;
 
     Ok(Json(guild.into()))
+}
+
+/// Every role and channel in the guild, with names.
+///
+/// Gated on holding *any* feature-read permission rather than one: this is shared
+/// reference data, and every configuration screen needs it to render a picker.
+/// Requiring `leveling:read` here would break the welcome page for a role that
+/// only holds `welcome:read`, and nothing about the directory is more sensitive
+/// than the ids the caller can already read from the config it is decorating.
+#[instrument(skip_all, fields(actor = %actor.id, guild = %guild_id))]
+pub async fn directory(
+    State(state): State<AppState>,
+    actor: AuthenticatedUser,
+    Path(guild_id): Path<String>,
+) -> Result<Json<GuildDirectoryResponse>, AppError> {
+    let guild_id = guild_id_from_path(&guild_id)?;
+
+    let context = load_guild_context(&state, actor.id, guild_id).await?;
+    ensure_any_permission(
+        &context,
+        &[
+            "leveling:read",
+            "economy:read",
+            "welcome:read",
+            "autorole:read",
+            "roles:read",
+            "members:read",
+        ],
+    )?;
+
+    let use_case = GuildDirectoryUseCase::new(state.guild_directory.clone());
+    let directory = use_case.execute(guild_id).await?;
+
+    Ok(Json(directory.into()))
 }

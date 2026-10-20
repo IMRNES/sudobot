@@ -36,7 +36,8 @@ use iam::infrastructure::repository::{
     SeaOrmWelcomeRepository,
 };
 use iam::infrastructure::service::{
-    Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient, ReqwestRolePanelPublisher,
+    Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient, ReqwestGuildDirectory,
+    ReqwestRolePanelPublisher,
 };
 use iam::presentation::{AppState, build_router};
 use sudobot_config::DashboardAccessConfig;
@@ -101,6 +102,9 @@ async fn state(db: DatabaseConnection) -> AppState {
         .expect("the discord client builds"),
         // No token, so a publish test cannot accidentally post to a real channel.
         panel_publisher: ReqwestRolePanelPublisher::new(None).expect("the publisher builds"),
+        // No token either: the directory endpoint must refuse rather than reach
+        // Discord, so a test can assert the 503 an unconfigured install returns.
+        guild_directory: ReqwestGuildDirectory::new(None).expect("the directory client builds"),
         clock: SystemClock,
         access: Some(access),
 
@@ -494,6 +498,73 @@ async fn an_unknown_guild_is_missing_rather_than_forbidden() {
         response.status(),
         StatusCode::NOT_FOUND,
         "an unknown guild is missing, not forbidden — a client acts on the difference"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs DATABASE_URL and a migrated database"]
+async fn the_directory_refuses_an_installation_with_no_bot_token() {
+    let Some(db) = connect().await else { return };
+    let users = SeaOrmUserRepository::new(db.clone());
+    let guilds = SeaOrmGuildRepository::new(db.clone());
+    let app_state = state(db).await;
+    let app = mount(app_state.clone());
+
+    let guild_id = seed_guild(&guilds, "Directory Guild").await;
+    let user_id = seed_user(&users, true).await;
+    let token = token_for(&app_state, user_id).await;
+
+    let response = app
+        .oneshot(authed(
+            "GET",
+            &format!("/api/v1/iam/guilds/{guild_id}/directory"),
+            &token,
+        ))
+        .await
+        .unwrap();
+
+    // The test state carries no bot token, so the endpoint must refuse before it
+    // ever reaches Discord. 503 rather than 401: the caller did nothing wrong, the
+    // installation is missing a credential, and the page is expected to degrade to
+    // ids rather than fail.
+    assert_eq!(
+        response.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "no bot token is a deployment gap, not a bad request"
+    );
+
+    let json = json_body(response).await;
+    assert!(
+        json["error"].as_str().unwrap().contains("bot token"),
+        "the message names the missing half, got: {}",
+        json["error"]
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs DATABASE_URL and a migrated database"]
+async fn the_directory_rejects_a_guild_id_that_is_not_a_snowflake() {
+    let Some(db) = connect().await else { return };
+    let users = SeaOrmUserRepository::new(db.clone());
+    let app_state = state(db).await;
+    let app = mount(app_state.clone());
+
+    let user_id = seed_user(&users, true).await;
+    let token = token_for(&app_state, user_id).await;
+
+    let response = app
+        .oneshot(authed(
+            "GET",
+            "/api/v1/iam/guilds/not-a-snowflake/directory",
+            &token,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "the path is parsed before the guild is looked up, so a typo is a client error"
     );
 }
 

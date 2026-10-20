@@ -78,6 +78,44 @@ export interface IGuildDetail extends IGuildSummary {
 	owner_discord_id: string
 }
 
+/**
+ * A Discord role, as the directory endpoint reports it.
+ *
+ * `managed` marks bot and integration roles: they exist in the role list but
+ * cannot be assigned by hand, so pickers label them rather than letting an admin
+ * pick one and watch nothing happen.
+ */
+export interface IDirectoryRole {
+	id: string
+	name: string
+	/** 24-bit colour; `0` means Discord has no colour set, not black. */
+	color: number
+	position: number
+	hoist: boolean
+	mentionable: boolean
+	managed: boolean
+}
+
+/** A Discord channel. `kind` is Discord's raw type: 0 text, 2 voice, 4 category. */
+export interface IDirectoryChannel {
+	id: string
+	name: string
+	kind: number
+	parent_id: string | null
+}
+
+/**
+ * Every role and channel in a guild, with names.
+ *
+ * The dashboard stores snowflakes and a snowflake is unreadable, so every picker
+ * resolves through this. It is fetched once per guild and cached, which is why the
+ * response carries both lists together rather than one call per picker.
+ */
+export interface IGuildDirectoryResponse {
+	roles: IDirectoryRole[]
+	channels: IDirectoryChannel[]
+}
+
 export interface IAuthorizeResponse {
 	authorize_url: string
 	state: string

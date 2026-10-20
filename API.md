@@ -90,9 +90,38 @@ lose precision as JavaScript numbers.
 | GET | `/guilds` | — (own memberships) | paginated `GuildSummary` |
 | GET | `/guilds/{guildId}` | `members:read` | `GuildDetail` |
 | PATCH | `/guilds/{guildId}` | `dashboard:manage` | `{"name":"..."}` |
+| GET | `/guilds/{guildId}/directory` | any feature `:read` | role and channel names |
 
 `GuildDetail` = `GuildSummary` plus
 `{"created_at": "...", "updated_at": "...", "owner_discord_id": "..."}`.
+
+`GuildDirectory` is how the dashboard renders a name instead of a snowflake.
+Every configuration screen stores Discord ids, and an id tells a human nothing, so
+each picker resolves through this. It is read with the **bot** token — no visitor
+has authority to enumerate a guild's roles — and the API keeps no copy of the
+names, so a role renamed in Discord shows its new name on the next load.
+
+```json
+{
+  "roles": [
+    {"id": "1460146703637287115", "name": "Neophyte", "color": 5793266,
+     "position": 22, "hoist": true, "mentionable": false, "managed": false}
+  ],
+  "channels": [{"id": "1561374062926630912", "name": "general", "kind": 0, "parent_id": null}]
+}
+```
+
+Roles come back highest-position first, channels in name order. `managed` marks a
+bot or integration role, which cannot be assigned by hand — the pickers label those
+so an admin is not offered a choice that silently does nothing. `kind` is Discord's
+raw channel type (`0` text, `2` voice, `4` category, `5` news, `13` stage,
+`15` forum).
+
+Gated on holding **any** one of `leveling:read`, `economy:read`, `welcome:read`,
+`autorole:read`, `roles:read`, `members:read` rather than a single permission: this
+is shared reference data, and gating it on one feature's read permission would 404 a
+page whose picker needed it. A `503` means the installation has no bot token, and
+the dashboard degrades to showing raw ids.
 
 ---
 
