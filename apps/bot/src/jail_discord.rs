@@ -92,6 +92,40 @@ pub async fn apply_jail_permissions(
     Ok(report)
 }
 
+/// Writes the policy for a single channel.
+///
+/// Used when a channel appears while a jail is already sealed. Without this a
+/// prisoner can read every channel created after the seal — the jail covers the
+/// channels that existed when it was built and leaks through all later ones, which
+/// is exactly the mistake that makes an admin believe the jail works.
+pub async fn seal_channel(
+    http: &serenity::Http,
+    jail_role_id: serenity::RoleId,
+    channel_id: serenity::ChannelId,
+    prison_channel_id: Option<serenity::ChannelId>,
+) -> Result<(), crate::Error> {
+    let policy = ChannelPolicy::for_channel(channel_id.get(), prison_channel_id.map(|id| id.get()));
+
+    channel_id
+        .create_permission(
+            http,
+            serenity::PermissionOverwrite {
+                allow: serenity::Permissions::from_bits_truncate(policy.allow),
+                deny: serenity::Permissions::from_bits_truncate(policy.deny),
+                kind: serenity::PermissionOverwriteType::Role(jail_role_id),
+            },
+        )
+        .await?;
+
+    debug!(
+        channel_id = channel_id.get(),
+        role_id = jail_role_id.get(),
+        "sealed a newly created channel for the jail role"
+    );
+
+    Ok(())
+}
+
 /// Removes the jail role's overwrites from every channel.
 ///
 /// Called when a jail is un-configured or moved to a different role, so the old role
@@ -251,6 +285,26 @@ mod tests {
     #[test]
     fn an_empty_report_is_clean() {
         assert!(JailSyncReport::default().is_clean());
+    }
+
+    #[test]
+    fn a_new_channel_is_sealed_unless_it_is_the_cell() {
+        // The policy a channel-created event must produce. Getting this wrong is
+        // silent: a prisoner simply keeps reading every channel created after the
+        // jail was built.
+        let cell = 1_561_345u64;
+
+        let normal = ChannelPolicy::for_channel(2, Some(cell));
+        assert_eq!(normal.allow, 0, "a new channel must grant nothing");
+        assert_ne!(normal.deny, 0, "a new channel must deny something");
+
+        let inside = ChannelPolicy::for_channel(cell, Some(cell));
+        assert_ne!(inside.allow, 0, "the cell itself must stay usable");
+
+        // No jail channel configured: every channel, including the new one, is
+        // sealed. Better a member with nowhere to talk than an open jail.
+        let cellless = ChannelPolicy::for_channel(2, None);
+        assert_eq!(cellless.allow, 0);
     }
 
     #[test]

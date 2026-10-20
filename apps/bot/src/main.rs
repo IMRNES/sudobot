@@ -119,6 +119,13 @@ async fn main() -> Result<()> {
                 autorole_sweeper::spawn(Arc::clone(&data));
                 jail_sweeper::spawn(Arc::clone(&data));
 
+                // Repair the jail's overwrites once, at startup. A channel created
+                // while the bot was down, or a hand-edited overwrite, would otherwise
+                // stay wrong until somebody re-saved the form.
+                if let Err(error) = jail_sweeper::reseal_all(&data).await {
+                    tracing::warn!(%error, "re-sealing the jail at startup failed");
+                }
+
                 // The ladder is part of the deployment, not a manual step: a fresh
                 // host running the leveling engine with no reward roles would
                 // compute level-ups and grant nothing. Provisioning here means

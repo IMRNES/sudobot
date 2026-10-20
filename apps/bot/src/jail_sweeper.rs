@@ -70,6 +70,52 @@ async fn sweep_once(data: &Data) -> Result<(), crate::Error> {
     reconcile_live(data).await
 }
 
+/// Re-seals every configured jail.
+///
+/// Not part of the minute sweep: it is one Discord call per channel per guild, which
+/// is far too much to repeat every tick. It runs once at startup instead, so a
+/// channel created while the bot was down — or a role whose overwrites were edited by
+/// hand in the Discord UI — is repaired by a restart rather than surviving until
+/// somebody happens to save the form.
+pub async fn reseal_all(data: &Data) -> Result<(), crate::Error> {
+    let guilds = data.guilds.list_active().await?;
+    let http = data.http();
+
+    for guild in guilds {
+        let config = data.jail.find_config(guild.id).await?;
+        let Some(role_id) = config.jail_role_id else {
+            continue;
+        };
+
+        let guild_id = serenity::GuildId::new(guild.id);
+
+        match jail_discord::apply_jail_permissions(
+            &http,
+            guild_id,
+            serenity::RoleId::new(role_id),
+            config.jail_channel_id.map(serenity::ChannelId::new),
+        )
+        .await
+        {
+            Ok(report) => info!(
+                guild_id = guild.id,
+                written = report.channels_updated,
+                failed = report.channels_failed,
+                "re-sealed the jail at startup"
+            ),
+            // Best effort: a guild whose bot role sits too low is a configuration
+            // problem, not a reason to refuse to start.
+            Err(error) => warn!(
+                guild_id = guild.id,
+                %error,
+                "could not re-seal the jail at startup"
+            ),
+        }
+    }
+
+    Ok(())
+}
+
 /// Releases every sentence whose deadline has passed.
 async fn release_expired(data: &Data) -> Result<(), crate::Error> {
     let sweep = SweepExpiredSentencesUseCase::new(data.jail.clone(), data.clock);

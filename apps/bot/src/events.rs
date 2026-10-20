@@ -23,6 +23,7 @@ use crate::data::Data;
 use crate::voice_tracker::VoiceTracker;
 use iam::application::ports::Clock;
 use iam::domain::guild::GuildRepository;
+use iam::domain::jail::JailRepository as _;
 use iam::domain::leveling::LevelingRepository;
 use iam::domain::welcome::WelcomeRepository;
 
@@ -56,6 +57,17 @@ pub async fn handle(
     };
 
     match event {
+        // A channel created while a jail is sealed is readable by every prisoner
+        // until something writes its overwrite, so this is not optional upkeep: it
+        // is the difference between a jail and a jail that leaks through every new
+        // channel. Best effort — a failure is logged and the next sweep does not fix
+        // it, but refusing to handle the event cannot either.
+        serenity::FullEvent::ChannelCreate { channel } => {
+            if let Err(error) = handle_channel_created(listener.data, listener.ctx, channel).await {
+                warn!(%error, "sealing a newly created channel for the jail failed");
+            }
+        }
+
         serenity::FullEvent::GuildCreate { guild, .. } => {
             handle_guild_create(data, framework.serenity_context, guild).await;
         }
@@ -428,6 +440,41 @@ pub async fn handle_guild_delete(data: &Data, guild_id: serenity::GuildId) {
 }
 
 /// Greets a new member and queues their automatic roles.
+/// Seals a channel that appeared while a jail is configured.
+///
+/// An unconfigured guild is the normal case and costs one query, not a Discord call.
+pub async fn handle_channel_created(
+    data: &Data,
+    ctx: &serenity::Context,
+    channel: &serenity::GuildChannel,
+) -> Result<(), crate::Error> {
+    // `GuildChannel` rather than `Channel`: the event only fires inside a guild, and
+    // the concrete type says so instead of requiring an `Option` unwrap for a case
+    // that cannot happen.
+    let guild_id = channel.guild_id;
+
+    let config = data.jail.find_config(guild_id.get()).await?;
+    let Some(role_id) = config.jail_role_id else {
+        return Ok(());
+    };
+
+    crate::jail_discord::seal_channel(
+        &ctx.http,
+        serenity::RoleId::new(role_id),
+        channel.id,
+        config.jail_channel_id.map(serenity::ChannelId::new),
+    )
+    .await?;
+
+    tracing::info!(
+        guild_id = guild_id.get(),
+        channel_id = channel.id.get(),
+        "sealed a channel created while the jail is active"
+    );
+
+    Ok(())
+}
+
 pub async fn handle_member_join(
     data: &Data,
     ctx: &serenity::Context,
