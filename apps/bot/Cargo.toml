@@ -21,5 +21,10 @@ uuid.workspace = true
 sea-orm.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+# Test-only: `ladder_icons` decodes the embedded PNGs to assert the artwork has a
+# transparent margin. Nothing at runtime needs a decompressor.
+flate2.workspace = true
+
 [lints]
 workspace = true

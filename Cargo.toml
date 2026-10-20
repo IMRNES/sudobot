@@ -30,6 +30,10 @@ tower = "0.5"
 tower-http = { version = "0.7.1", features = ["cors", "trace", "limit"] }
 
 # --- persistence ------------------------------------------------------------
+# Test-only decompression: `apps/bot` decodes its embedded PNG badges to assert
+# they carry a transparent margin. Nothing at runtime needs it.
+flate2 = "1.1"
+
 sea-orm = { version = "2.0.4", default-features = false, features = [
     "sqlx-postgres",
     "runtime-tokio-rustls",

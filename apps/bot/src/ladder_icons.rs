@@ -86,6 +86,166 @@ pub fn is_png(bytes: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    /// The artwork must not touch the edges of the canvas.
+    ///
+    /// Discord draws a role icon into a square slot. A circle that bleeds to the
+    /// canvas edge is cropped by that slot's corners, so the badge renders as a
+    /// square-ish sticker — the "gagal PNG" look — instead of a disc. The fix is
+    /// transparent margin on all four sides, and this is the assertion that keeps it
+    /// there: the first release of these badges was full-bleed and every one of the
+    /// 21 was quietly square-looking.
+    ///
+    /// Decoded with the standard library's `inflate` and a full PNG filter
+    /// reconstruction rather than a PNG crate: the check has to be *correct*, and a
+    /// decoder that skipped unfiltering would report transparent margins for an
+    /// opaque image. ~60 lines is cheaper than a dependency that only tests use.
+    #[test]
+    fn every_badge_has_transparent_margin_on_all_four_sides() {
+        for rung in iam::domain::leveling::LADDER.iter() {
+            let bytes = badge(rung.name)
+                .map(|b| b.png)
+                .unwrap_or_else(|| panic!("{} has no embedded badge", rung.name));
+
+            let edge = edge_alpha(bytes)
+                .unwrap_or_else(|| panic!("{}: could not decode the PNG", rung.name));
+
+            assert!(
+                edge < 8,
+                "{}: opaque pixels reach the canvas edge (peak alpha {edge}). Discord \
+                 crops a square slot over a full-bleed circle, so the badge renders as \
+                 a square. Inset the artwork and leave transparent margin.",
+                rung.name
+            );
+        }
+    }
+
+    /// The highest alpha in the outermost pixel ring of an 8-bit RGBA PNG.
+    ///
+    /// Reconstructs every scanline through the PNG filters, because the filtered
+    /// bytes are deltas: reading alpha straight out of them would understate or
+    /// overstate the real value depending on what the encoder chose.
+    fn edge_alpha(png: &[u8]) -> Option<u8> {
+        let mut pos = 8; // skip the signature
+        let mut width = 0usize;
+        let mut height = 0usize;
+        let mut idat = Vec::new();
+
+        while pos + 8 <= png.len() {
+            let len = u32::from_be_bytes(png.get(pos..pos + 4)?.try_into().ok()?) as usize;
+            let kind = png.get(pos + 4..pos + 8)?;
+            let body = png.get(pos + 8..pos + 8 + len)?;
+
+            match kind {
+                b"IHDR" => {
+                    width = u32::from_be_bytes(body.get(0..4)?.try_into().ok()?) as usize;
+                    height = u32::from_be_bytes(body.get(4..8)?.try_into().ok()?) as usize;
+                    // 8-bit, colour type 6 (RGBA) is what the generator writes. Anything
+                    // else means the artwork pipeline changed and this needs revisiting.
+                    if body.get(8).copied() != Some(8) || body.get(9).copied() != Some(6) {
+                        return None;
+                    }
+                }
+                b"IDAT" => idat.extend_from_slice(body),
+                b"IEND" => break,
+                _ => {}
+            }
+
+            pos += 12 + len;
+        }
+
+        if width == 0 || height == 0 {
+            return None;
+        }
+
+        let raw = inflate(&idat)?;
+        let bpp = 4; // RGBA8
+        let stride = width * bpp;
+
+        if raw.len() < (stride + 1) * height {
+            return None;
+        }
+
+        // Unfilter in place, scanline by scanline, as libpng/the spec describes.
+        let mut prev = vec![0u8; stride];
+        let mut cur = vec![0u8; stride];
+        let mut peak = 0u8;
+
+        for row in 0..height {
+            let start = row * (stride + 1);
+            let filter = raw[start];
+            cur.copy_from_slice(&raw[start + 1..start + 1 + stride]);
+
+            for i in 0..stride {
+                let a = if i >= bpp { cur[i - bpp] } else { 0 };
+                let b = prev[i];
+                let c = if i >= bpp { prev[i - bpp] } else { 0 };
+
+                cur[i] = match filter {
+                    0 => cur[i],
+                    1 => cur[i].wrapping_add(a),
+                    2 => cur[i].wrapping_add(b),
+                    3 => cur[i].wrapping_add(((u16::from(a) + u16::from(b)) / 2) as u8),
+                    4 => {
+                        // Paeth
+                        let p = i32::from(a) + i32::from(b) - i32::from(c);
+                        let pa = (p - i32::from(a)).abs();
+                        let pb = (p - i32::from(b)).abs();
+                        let pc = (p - i32::from(c)).abs();
+                        let pred = if pa <= pb && pa <= pc {
+                            a
+                        } else if pb <= pc {
+                            b
+                        } else {
+                            c
+                        };
+                        cur[i].wrapping_add(pred)
+                    }
+                    _ => return None,
+                };
+            }
+
+            // Only the outer ring matters: first and last row, and the first and last
+            // pixel of every row.
+            if row == 0 || row == height - 1 {
+                for x in 0..width {
+                    peak = peak.max(cur[x * bpp + 3]);
+                }
+            }
+            peak = peak.max(cur[3]);
+            peak = peak.max(cur[(width - 1) * bpp + 3]);
+
+            std::mem::swap(&mut prev, &mut cur);
+        }
+
+        Some(peak)
+    }
+
+    /// zlib inflate, using nothing but the standard library.
+    ///
+    /// Wraps the raw DEFLATE reader in `std`, which handles both stored and
+    /// Huffman-coded blocks, and skips zlib's two-byte header and Adler-32 trailer.
+    fn inflate(zlib: &[u8]) -> Option<Vec<u8>> {
+        use std::io::Read as _;
+
+        if zlib.len() < 6 {
+            return None;
+        }
+
+        // CMF/FLG: the low nibble of CMF must be 8 (DEFLATE), and the preset
+        // dictionary bit must be clear — otherwise this is not the format the encoder
+        // was expected to produce.
+        if zlib[0] & 0x0f != 8 || zlib[1] & 0x20 != 0 {
+            return None;
+        }
+
+        let body = &zlib[2..zlib.len() - 4]; // strip header and Adler-32
+        let mut out = Vec::new();
+        flate2::read::DeflateDecoder::new(body)
+            .read_to_end(&mut out)
+            .ok()?;
+        Some(out)
+    }
+
     #[test]
     fn every_rung_has_a_badge() {
         assert_eq!(

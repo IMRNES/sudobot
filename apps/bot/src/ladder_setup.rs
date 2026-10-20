@@ -172,12 +172,21 @@ pub async fn provision(
                 // here means an existing ladder is fixed by the same run that would
                 // have created it.
                 let needs_hoist = existing.get(role_id).is_some_and(|role| !role.hoist);
-                // The badge is checked the same way: a rung created before the
-                // artwork existed has a bare coloured circle, and nothing else in
-                // the system would ever add one.
-                let needs_icon = existing
-                    .get(role_id)
-                    .is_some_and(|role| role.icon.is_none());
+                // The badge is re-uploaded on every run, whenever one is embedded.
+                //
+                // Not gated on `role.icon.is_none()`: that was the first version, and
+                // it meant corrected artwork could never reach the guild — the rung
+                // already had *an* icon, so the run reported nothing to do while
+                // Discord kept serving the old picture. Every badge in this release
+                // was wrong in the same way, so "only when missing" would have fixed
+                // none of them.
+                //
+                // A hash comparison would be cheaper, but Discord re-encodes the
+                // upload: the hash it returns is not the hash of the bytes sent, so
+                // there is nothing local to compare against. Re-sending is 21 role
+                // edits once per boot, which is the honest price of being able to
+                // repair a bad badge by deploying.
+                let needs_icon = crate::ladder_icons::badge(rung.name).is_some();
 
                 if needs_hoist || needs_icon {
                     let mut edit = serenity::EditRole::new();
