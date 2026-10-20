@@ -77,6 +77,8 @@ pub struct LeaderboardEntryResponse {
     #[serde(with = "snowflake")]
     pub discord_id: u64,
     pub balance: i64,
+    /// `null` when no name is on record, which is not the same as an empty name.
+    pub display_name: Option<String>,
 }
 
 impl LeaderboardEntryResponse {
@@ -90,6 +92,7 @@ impl LeaderboardEntryResponse {
                 rank: index as u32 + 1,
                 discord_id: entry.discord_user_id,
                 balance: entry.balance,
+                display_name: entry.display_name.clone(),
             })
             .collect()
     }

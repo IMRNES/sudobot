@@ -1,7 +1,7 @@
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::application::ports::Clock;
+use crate::application::ports::{Clock, MemberDirectory};
 use crate::domain::economy::{
     Account, EconomyError, EconomyRepository, NewTransaction, ShopItem, TransactionReason,
     ensure_affordable,
@@ -56,18 +56,33 @@ impl From<ShopItem> for ShopItemView {
 pub struct LeaderboardEntry {
     pub discord_user_id: u64,
     pub balance: i64,
+    /// The name the bot last saw this member use, or `None` if it has never
+    /// recorded one.
+    ///
+    /// `None` is the honest answer for a member who has never spoken, and the
+    /// dashboard shows their id for it. A synthesised "User 1504…8976" would be a
+    /// name the server never had.
+    pub display_name: Option<String>,
 }
 
 /// Browsing the shop and the rich list.
-pub struct ShopListingUseCase<E> {
+pub struct ShopListingUseCase<E, M = ()> {
     economy: E,
+    members: M,
 }
 
 impl<E: EconomyRepository> ShopListingUseCase<E> {
+    /// A listing without a name lookup, for the bot's own shop output, which
+    /// addresses members by mention and never needs a cached name.
     pub fn new(economy: E) -> Self {
-        Self { economy }
+        Self {
+            economy,
+            members: (),
+        }
     }
+}
 
+impl<E: EconomyRepository, M> ShopListingUseCase<E, M> {
     /// Every item in the guild, retired ones included.
     ///
     /// Inactive rows are part of the answer on purpose: this is the management
@@ -92,7 +107,15 @@ impl<E: EconomyRepository> ShopListingUseCase<E> {
 
         Ok(page.data.into_iter().map(ShopItemView::from).collect())
     }
+}
 
+impl<E: EconomyRepository, M: MemberDirectory> ShopListingUseCase<E, M> {
+    pub fn with_member_names(economy: E, members: M) -> Self {
+        Self { economy, members }
+    }
+}
+
+impl<E: EconomyRepository> ShopListingUseCase<E> {
     /// The top `limit` balances in the guild, highest first.
     ///
     /// The unity of this view with the store listing is not incidental: both are
@@ -110,8 +133,42 @@ impl<E: EconomyRepository> ShopListingUseCase<E> {
             .map(|account| LeaderboardEntry {
                 discord_user_id: account.discord_user_id,
                 balance: account.balance,
+                display_name: None,
             })
             .collect())
+    }
+}
+
+impl<E: EconomyRepository, M: MemberDirectory> ShopListingUseCase<E, M> {
+    /// The rich list with each member's name filled in.
+    ///
+    /// One lookup for the whole page, the same shape the leveling leaderboard uses:
+    /// a per-row name query would be an N+1 behind a leaderboard that refreshes
+    /// with every visit.
+    pub async fn leaderboard_with_names(
+        &self,
+        guild_id: u64,
+        limit: u32,
+    ) -> Result<Vec<LeaderboardEntry>, EconomyError> {
+        // Read the page directly rather than delegating to the unnamed
+        // `leaderboard`, which exists only on the plain `M = ()` instantiation.
+        let accounts: Vec<Account> = self.economy.leaderboard(guild_id, limit).await?;
+        let mut entries: Vec<LeaderboardEntry> = accounts
+            .into_iter()
+            .map(|account| LeaderboardEntry {
+                discord_user_id: account.discord_user_id,
+                balance: account.balance,
+                display_name: None,
+            })
+            .collect();
+
+        let ids: Vec<u64> = entries.iter().map(|entry| entry.discord_user_id).collect();
+        let names = self.members.names(guild_id, &ids).await?;
+        for entry in &mut entries {
+            entry.display_name = names.get(&entry.discord_user_id).cloned();
+        }
+
+        Ok(entries)
     }
 }
 
@@ -788,18 +845,72 @@ mod tests {
             vec![
                 LeaderboardEntry {
                     discord_user_id: 2,
-                    balance: 900
+                    balance: 900,
+                    display_name: None
                 },
                 LeaderboardEntry {
                     discord_user_id: 3,
-                    balance: 500
+                    balance: 500,
+                    display_name: None
                 },
                 LeaderboardEntry {
                     discord_user_id: 1,
-                    balance: 100
+                    balance: 100,
+                    display_name: None
                 },
             ],
             "highest first, because the rank is the position"
+        );
+    }
+
+    /// A name source that knows only the members it was given.
+    #[derive(Clone, Default)]
+    struct FakeMemberDirectory {
+        names: std::collections::HashMap<u64, String>,
+    }
+
+    impl FakeMemberDirectory {
+        fn with(pairs: &[(u64, &str)]) -> Self {
+            Self {
+                names: pairs
+                    .iter()
+                    .map(|(id, name)| (*id, (*name).to_string()))
+                    .collect(),
+            }
+        }
+    }
+
+    impl crate::application::ports::MemberDirectory for FakeMemberDirectory {
+        async fn names(
+            &self,
+            _guild_id: u64,
+            discord_user_ids: &[u64],
+        ) -> Result<std::collections::HashMap<u64, String>, RepositoryError> {
+            Ok(discord_user_ids
+                .iter()
+                .filter_map(|id| self.names.get(id).map(|name| (*id, name.clone())))
+                .collect())
+        }
+    }
+
+    #[tokio::test]
+    async fn the_named_leaderboard_fills_known_names_and_leaves_the_rest_empty() {
+        let economy = FakeEconomyRepository::new();
+        economy.seed_account(7, 1, 100, None);
+        economy.seed_account(7, 2, 900, None);
+
+        let entries = ShopListingUseCase::with_member_names(
+            economy.clone(),
+            FakeMemberDirectory::with(&[(2, "asepharyana")]),
+        )
+        .leaderboard_with_names(7, 10)
+        .await
+        .expect("leaderboard");
+
+        assert_eq!(entries[0].display_name.as_deref(), Some("asepharyana"));
+        assert_eq!(
+            entries[1].display_name, None,
+            "a member with no recorded name stays None rather than being given one"
         );
     }
 

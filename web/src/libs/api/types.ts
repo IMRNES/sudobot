@@ -260,6 +260,12 @@ export interface IEconomyLeaderboardEntryResponse {
 	rank: number
 	discord_id: string
 	balance: number
+	/**
+	 * The name the bot last saw this member use, or `null` when it has never
+	 * recorded one. `null` is shown as the id; a made-up name would be worse than
+	 * an ugly one, because it would look like a real member nobody can find.
+	 */
+	display_name: string | null
 	level?: number
 	total_earned?: number
 	total_spent?: number

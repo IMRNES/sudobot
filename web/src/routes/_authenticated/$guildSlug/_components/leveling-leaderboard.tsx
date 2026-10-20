@@ -4,7 +4,7 @@ import { EmptyState } from "#/components/features/empty-state.tsx"
 import { QueryBoundary } from "#/components/features/query-boundary.tsx"
 import { UserCell } from "#/components/features/user-cell.tsx"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx"
-import { cn, formatNumber, formatPercent, shortId } from "#/libs/utils.ts"
+import { cn, formatNumber, formatPercent } from "#/libs/utils.ts"
 import { guildQueries } from "#/routes/_authenticated/$guildSlug/_data/queries.ts"
 
 /** Top levelled members, with each member's progress toward the next level. */
@@ -59,7 +59,7 @@ export function LevelingLeaderboard({
 									discordId={entry.discord_id}
 									// A member with no recorded name keeps the id fallback; showing
 									// a name the server never told us would be a fabrication.
-									name={entry.display_name ?? `User ${shortId(entry.discord_id, 4)}`}
+									name={entry.display_name}
 									secondary={`Level ${entry.level}`}
 									className="flex-1"
 								/>

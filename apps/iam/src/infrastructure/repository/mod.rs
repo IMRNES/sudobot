@@ -13,6 +13,7 @@ mod guild_member;
 mod guild_role;
 mod leveling;
 mod mapping;
+mod member_directory;
 mod pagination;
 mod permission;
 mod refresh_token;

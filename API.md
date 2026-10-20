@@ -210,6 +210,15 @@ replaces the whole matrix. Returns the updated `RoleResponse`.
 `POST .../adjust` body: `{"amount":500,"reason":"event prize"}` — positive grants,
 negative deducts. Returns the updated `AccountResponse`.
 
+`EconomyLeaderboardEntryResponse`: `{"rank":1,"discord_id":"...","balance":1250,"display_name":"asepharyana"}`
+
+`display_name` is the name the bot last saw the member use, read from the same
+cache the leveling leaderboard uses, and it is **`null` when no name is on
+record** — a member who has never sent a message in the guild. The dashboard shows
+the id in that case. It is never synthesised: a made-up "User 1504…8976" looks like
+a real member whose name cannot be found, which is worse than the snowflake it was
+hiding.
+
 `ShopItemResponse`:
 `{"id":"uuid","slug":"vip","name":"VIP","description":null,"price":5000,"role_id":"...","stock":null,"is_active":true}`
 `POST` body: `{"slug":"vip","name":"VIP","description":"...","price":5000,"role_id":"...","stock":null}`

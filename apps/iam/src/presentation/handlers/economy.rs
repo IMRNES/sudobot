@@ -122,8 +122,9 @@ pub async fn leaderboard(
     let limit = validate_limit(query.limit, 100, "limit")?;
     authorize(&state, actor.id, guild_id, "economy:read").await?;
 
-    let use_case = ShopListingUseCase::new(state.economy.clone());
-    let entries: Vec<LeaderboardEntry> = use_case.leaderboard(guild_id, limit).await?;
+    let use_case =
+        ShopListingUseCase::with_member_names(state.economy.clone(), state.leveling.clone());
+    let entries: Vec<LeaderboardEntry> = use_case.leaderboard_with_names(guild_id, limit).await?;
 
     Ok(Json(LeaderboardEntryResponse::list(&entries)))
 }

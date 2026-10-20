@@ -1,10 +1,15 @@
 import { Avatar, AvatarFallback, AvatarImage } from "#/components/ui/avatar.tsx"
-import { avatarUrl, cn, initialsOf, shortId } from "#/libs/utils.ts"
+import { avatarUrl, cn, initialsOf } from "#/libs/utils.ts"
 
 /**
  * Avatar + name + id, in one consistent block. Used by the member list, the
  * economy account lookup, both leaderboards and the transaction log, so a
  * snowflake is always rendered the same way.
+ *
+ * With no `name` the id is the headline. It is ugly, and that is the point: the
+ * alternative the dashboard used to render — "User 1504…8976" — reads as a real
+ * member whose name nobody can look up, which is a worse lie than a snowflake. A
+ * name is either something the bot actually observed or it is not a name.
  */
 export function UserCell({
 	discordId,
@@ -20,7 +25,7 @@ export function UserCell({
 	secondary?: React.ReactNode
 	className?: string
 }) {
-	const displayName = name ?? `User ${shortId(discordId, 4)}`
+	const displayName = name ?? discordId
 	const src = avatarUrl(avatar, 64)
 
 	return (

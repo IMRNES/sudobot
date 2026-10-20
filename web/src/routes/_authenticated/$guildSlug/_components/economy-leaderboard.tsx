@@ -4,7 +4,7 @@ import { EmptyState } from "#/components/features/empty-state.tsx"
 import { QueryBoundary } from "#/components/features/query-boundary.tsx"
 import { UserCell } from "#/components/features/user-cell.tsx"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#/components/ui/card.tsx"
-import { cn, formatNumber, shortId } from "#/libs/utils.ts"
+import { cn, formatNumber } from "#/libs/utils.ts"
 import { guildQueries } from "#/routes/_authenticated/$guildSlug/_data/queries.ts"
 
 const MEDALS = [
@@ -69,7 +69,7 @@ export function EconomyLeaderboard({
 								</span>
 								<UserCell
 									discordId={entry.discord_id}
-									name={`User ${shortId(entry.discord_id, 4)}`}
+									name={entry.display_name}
 									className="flex-1"
 								/>
 								<span className="shrink-0 text-sm font-medium tabular-nums">
