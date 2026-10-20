@@ -508,6 +508,54 @@ export type TAutoRoleUpdateRequest = Partial<IAutoRoleCreateRequest> & {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Jail                                                                        */
+/* -------------------------------------------------------------------------- */
+
+export interface IJailConfigResponse {
+	guild_id: string
+	/** `null` means the jail is not set up. */
+	jail_role_id: string | null
+	/** The one channel a prisoner can still see. */
+	jail_channel_id: string | null
+	default_sentence_seconds: number | null
+	/** `null` disables bail. */
+	bail_amount: number | null
+}
+
+/**
+ * Every field is tri-state: absent leaves it alone, `null` clears it, a value sets
+ * it. Sending `undefined` and sending `null` are different requests.
+ */
+export interface IJailConfigUpdateRequest {
+	jail_role_id?: string | null
+	jail_channel_id?: string | null
+	default_sentence_seconds?: number | null
+	bail_amount?: number | null
+}
+
+export interface IJailSentenceResponse {
+	discord_user_id: string
+	jailed_by: string
+	reason: string
+	/** `null` is an indefinite sentence. */
+	expires_at: string | null
+	created_at: string
+	/** Computed server-side, so a wrong client clock cannot mislead. */
+	remaining_seconds: number | null
+}
+
+export interface IJailMemberRequest {
+	discord_user_id: string
+	reason?: string
+	/** Absent uses the guild default; `0` is indefinite. */
+	duration_seconds?: number | null
+}
+
+export interface IJailReleaseResponse {
+	was_imprisoned: boolean
+}
+
+/* -------------------------------------------------------------------------- */
 /* Health                                                                      */
 /* -------------------------------------------------------------------------- */
 

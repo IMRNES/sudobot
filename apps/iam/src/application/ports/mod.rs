@@ -7,6 +7,7 @@
 pub mod clock;
 pub mod discord;
 pub mod guild_directory;
+pub mod jail_enforcer;
 pub mod member_directory;
 pub mod panel_publisher;
 pub mod password;
@@ -17,6 +18,7 @@ pub use discord::{DiscordOAuthClient, DiscordOAuthError, DiscordProfile, GuildMe
 pub use guild_directory::{
     DirectoryChannel, DirectoryError, DirectoryRole, GuildDirectory, GuildDirectorySource,
 };
+pub use jail_enforcer::{EnforcerError, JailEnforcer, SealReport};
 pub use member_directory::MemberDirectory;
 pub use panel_publisher::{PanelPublishError, RolePanelPublisher, render_panel};
 pub use password::{PasswordError, PasswordService};

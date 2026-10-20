@@ -12,6 +12,8 @@ pub struct Data {
     pub leveling: iam::infrastructure::repository::SeaOrmLevelingRepository,
     pub economy: iam::infrastructure::repository::SeaOrmEconomyRepository,
     pub welcome: iam::infrastructure::repository::SeaOrmWelcomeRepository,
+    /// Jail configuration and the sentences served on it.
+    pub jail: iam::infrastructure::repository::SeaOrmJailRepository,
     /// Posts role panels as the bot.
     ///
     /// The same publisher the API uses, so `/rolepanel post` and the dashboard write
@@ -48,7 +50,8 @@ impl Data {
     ) -> Self {
         use iam::infrastructure::repository::{
             SeaOrmAutoRoleRepository, SeaOrmEconomyRepository, SeaOrmGuildRepository,
-            SeaOrmGuildRoleRepository, SeaOrmLevelingRepository, SeaOrmWelcomeRepository,
+            SeaOrmGuildRoleRepository, SeaOrmJailRepository, SeaOrmLevelingRepository,
+            SeaOrmWelcomeRepository,
         };
 
         Self {
@@ -58,6 +61,7 @@ impl Data {
             leveling: SeaOrmLevelingRepository::new(db.clone()),
             economy: SeaOrmEconomyRepository::new(db.clone()),
             welcome: SeaOrmWelcomeRepository::new(db.clone()),
+            jail: SeaOrmJailRepository::new(db),
             // Built once with the token the process already has, rather than
             // reaching through `http`: the publisher needs a reqwest client of its
             // own so it can set a timeout and a user agent.

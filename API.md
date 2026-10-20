@@ -349,6 +349,64 @@ A panel holds at most 25 options; exceeding that is a `400`.
 
 ---
 
+## Jail
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/guilds/{guildId}/jail` | `members:read` |
+| PATCH | `/guilds/{guildId}/jail` | `members:write` |
+| GET | `/guilds/{guildId}/jail/sentences` | `members:read` |
+| POST | `/guilds/{guildId}/jail/sentences` | `members:write` |
+| DELETE | `/guilds/{guildId}/jail/sentences/{discordUserId}` | `members:write` |
+
+`JailResponse`:
+
+```json
+{
+  "guild_id": "1450861658061803624",
+  "jail_role_id": "1560649243935645736",
+  "jail_channel_id": "1561345984905085040",
+  "default_sentence_seconds": 86400,
+  "bail_amount": 500
+}
+```
+
+`PATCH` takes `jail_role_id`, `jail_channel_id`, `default_sentence_seconds` and
+`bail_amount`, and every field is **tri-state**: omitted leaves it unchanged, `null`
+clears it, a value sets it. `jail_role_id: null` disables the jail. The repository
+`optional_snowflake` helper cannot express this, so these two fields use
+`triple_snowflake` and the request type implements `ValidatedRequest` by hand.
+
+A `PATCH` that sets a role writes a permission overwrite into **every** channel in
+the guild, so it costs one Discord call per channel and can take a few seconds. It
+answers `503` when the installation has no bot token, or when Discord refuses — the
+config is still stored, and the response's absence of a seal count is the signal that
+Discord did not agree.
+
+`SentenceResponse`:
+
+```json
+{
+  "discord_user_id": "1504073757256318976",
+  "jailed_by": "1504073757256318976",
+  "reason": "spamming #general",
+  "expires_at": "2026-10-21T04:00:00Z",
+  "created_at": "2026-10-20T04:00:00Z",
+  "remaining_seconds": 86214
+}
+```
+
+`remaining_seconds` is computed server-side so a dashboard with a skewed clock does
+not show a prisoner as already free. `expires_at: null` is an indefinite sentence.
+
+`DELETE` is idempotent: releasing a member with no live sentence returns
+`{"was_imprisoned": false}` rather than `404`, because two moderators reacting to the
+same incident is ordinary. `POST` body is
+`{"discord_user_id":"1504…","reason":"…","duration_seconds":3600}`; omitting
+`duration_seconds` uses the guild default and `0` means indefinite.
+
+---
+
 ## Bot commands
 
 The gateway bot registers these. They share the use cases the API calls, so a rule
@@ -368,6 +426,11 @@ can never differ between the two surfaces.
 | `/leaderboard` | — | Top ten by XP |
 | `/rank` | `user?` | Another member's XP card |
 | `/rolepanel` | — | Lists the server's role panels |
+| `/jail setup` | `role`, `channel`, `default_hours?`, `bail_price?` | Points the jail at a role and a cell, then seals every channel |
+| `/jail add` | `member`, `reason?`, `minutes?` | Jails a member |
+| `/jail release` | `member` | Frees a member early |
+| `/jail list` | — | Everyone currently in the cell |
+| `/jail bail` | — | Pays the bail price to leave early — the only jail subcommand a prisoner can run |
 | `/autorole` | — | Lists the server's automatic roles |
 
 Entities (money, leveling, shops, panels, automatic roles) are configured in the

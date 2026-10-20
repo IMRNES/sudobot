@@ -4,6 +4,7 @@ pub mod economy;
 pub mod errors;
 pub mod guild;
 pub mod guild_member;
+pub mod jail;
 pub mod leveling;
 pub mod pagination;
 pub mod rbac;

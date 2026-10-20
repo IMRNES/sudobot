@@ -9,6 +9,7 @@ pub mod autorole;
 pub mod economy;
 pub mod guild;
 pub mod health;
+pub mod jail;
 pub mod leveling;
 pub mod member;
 pub mod role;

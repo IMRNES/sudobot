@@ -11,6 +11,8 @@ mod commands;
 mod data;
 mod database;
 mod events;
+mod jail_discord;
+mod jail_sweeper;
 mod ladder_icons;
 mod ladder_setup;
 mod level_rewards;
@@ -115,6 +117,7 @@ async fn main() -> Result<()> {
                 }
 
                 autorole_sweeper::spawn(Arc::clone(&data));
+                jail_sweeper::spawn(Arc::clone(&data));
 
                 // The ladder is part of the deployment, not a manual step: a fresh
                 // host running the leveling engine with no reward roles would

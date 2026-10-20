@@ -14,6 +14,7 @@ pub mod autorole;
 pub mod economy;
 pub mod guild;
 pub mod guild_member;
+pub mod jail;
 pub mod leveling;
 pub mod ports;
 pub mod rbac;

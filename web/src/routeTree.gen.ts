@@ -17,6 +17,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedGuildSlugIndexRouteImport } from './routes/_authenticated/$guildSlug/index'
 import { Route as AuthenticatedGuildSlugAutorolesRouteImport } from './routes/_authenticated/$guildSlug/autoroles'
 import { Route as AuthenticatedGuildSlugEconomyRouteImport } from './routes/_authenticated/$guildSlug/economy'
+import { Route as AuthenticatedGuildSlugJailRouteImport } from './routes/_authenticated/$guildSlug/jail'
 import { Route as AuthenticatedGuildSlugLevelingRouteImport } from './routes/_authenticated/$guildSlug/leveling'
 import { Route as AuthenticatedGuildSlugMembersRouteImport } from './routes/_authenticated/$guildSlug/members'
 import { Route as AuthenticatedGuildSlugPanelsRouteImport } from './routes/_authenticated/$guildSlug/panels'
@@ -64,6 +65,12 @@ const AuthenticatedGuildSlugEconomyRoute =
   AuthenticatedGuildSlugEconomyRouteImport.update({
     id: '/economy',
     path: '/economy',
+    getParentRoute: () => AuthenticatedGuildSlugRoute,
+  } as any)
+const AuthenticatedGuildSlugJailRoute =
+  AuthenticatedGuildSlugJailRouteImport.update({
+    id: '/jail',
+    path: '/jail',
     getParentRoute: () => AuthenticatedGuildSlugRoute,
   } as any)
 const AuthenticatedGuildSlugLevelingRoute =
@@ -114,6 +121,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/$guildSlug/autoroles': typeof AuthenticatedGuildSlugAutorolesRoute
   '/$guildSlug/economy': typeof AuthenticatedGuildSlugEconomyRoute
+  '/$guildSlug/jail': typeof AuthenticatedGuildSlugJailRoute
   '/$guildSlug/leveling': typeof AuthenticatedGuildSlugLevelingRoute
   '/$guildSlug/members': typeof AuthenticatedGuildSlugMembersRoute
   '/$guildSlug/panels': typeof AuthenticatedGuildSlugPanelsRoute
@@ -128,6 +136,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/$guildSlug/autoroles': typeof AuthenticatedGuildSlugAutorolesRoute
   '/$guildSlug/economy': typeof AuthenticatedGuildSlugEconomyRoute
+  '/$guildSlug/jail': typeof AuthenticatedGuildSlugJailRoute
   '/$guildSlug/leveling': typeof AuthenticatedGuildSlugLevelingRoute
   '/$guildSlug/members': typeof AuthenticatedGuildSlugMembersRoute
   '/$guildSlug/panels': typeof AuthenticatedGuildSlugPanelsRoute
@@ -146,6 +155,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/$guildSlug/autoroles': typeof AuthenticatedGuildSlugAutorolesRoute
   '/_authenticated/$guildSlug/economy': typeof AuthenticatedGuildSlugEconomyRoute
+  '/_authenticated/$guildSlug/jail': typeof AuthenticatedGuildSlugJailRoute
   '/_authenticated/$guildSlug/leveling': typeof AuthenticatedGuildSlugLevelingRoute
   '/_authenticated/$guildSlug/members': typeof AuthenticatedGuildSlugMembersRoute
   '/_authenticated/$guildSlug/panels': typeof AuthenticatedGuildSlugPanelsRoute
@@ -163,6 +173,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/$guildSlug/autoroles'
     | '/$guildSlug/economy'
+    | '/$guildSlug/jail'
     | '/$guildSlug/leveling'
     | '/$guildSlug/members'
     | '/$guildSlug/panels'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/$guildSlug/autoroles'
     | '/$guildSlug/economy'
+    | '/$guildSlug/jail'
     | '/$guildSlug/leveling'
     | '/$guildSlug/members'
     | '/$guildSlug/panels'
@@ -194,6 +206,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/$guildSlug/autoroles'
     | '/_authenticated/$guildSlug/economy'
+    | '/_authenticated/$guildSlug/jail'
     | '/_authenticated/$guildSlug/leveling'
     | '/_authenticated/$guildSlug/members'
     | '/_authenticated/$guildSlug/panels'
@@ -268,6 +281,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedGuildSlugEconomyRouteImport
       parentRoute: typeof AuthenticatedGuildSlugRoute
     }
+    '/_authenticated/$guildSlug/jail': {
+      id: '/_authenticated/$guildSlug/jail'
+      path: '/jail'
+      fullPath: '/$guildSlug/jail'
+      preLoaderRoute: typeof AuthenticatedGuildSlugJailRouteImport
+      parentRoute: typeof AuthenticatedGuildSlugRoute
+    }
     '/_authenticated/$guildSlug/leveling': {
       id: '/_authenticated/$guildSlug/leveling'
       path: '/leveling'
@@ -323,6 +343,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedGuildSlugRouteChildren {
   AuthenticatedGuildSlugAutorolesRoute: typeof AuthenticatedGuildSlugAutorolesRoute
   AuthenticatedGuildSlugEconomyRoute: typeof AuthenticatedGuildSlugEconomyRoute
+  AuthenticatedGuildSlugJailRoute: typeof AuthenticatedGuildSlugJailRoute
   AuthenticatedGuildSlugLevelingRoute: typeof AuthenticatedGuildSlugLevelingRoute
   AuthenticatedGuildSlugMembersRoute: typeof AuthenticatedGuildSlugMembersRoute
   AuthenticatedGuildSlugPanelsRoute: typeof AuthenticatedGuildSlugPanelsRoute
@@ -336,6 +357,7 @@ const AuthenticatedGuildSlugRouteChildren: AuthenticatedGuildSlugRouteChildren =
   {
     AuthenticatedGuildSlugAutorolesRoute: AuthenticatedGuildSlugAutorolesRoute,
     AuthenticatedGuildSlugEconomyRoute: AuthenticatedGuildSlugEconomyRoute,
+    AuthenticatedGuildSlugJailRoute: AuthenticatedGuildSlugJailRoute,
     AuthenticatedGuildSlugLevelingRoute: AuthenticatedGuildSlugLevelingRoute,
     AuthenticatedGuildSlugMembersRoute: AuthenticatedGuildSlugMembersRoute,
     AuthenticatedGuildSlugPanelsRoute: AuthenticatedGuildSlugPanelsRoute,

@@ -8,6 +8,11 @@ import type {
 	IGuildDetail,
 	IGuildDirectoryResponse,
 	IGuildSummary,
+	IJailConfigResponse,
+	IJailConfigUpdateRequest,
+	IJailMemberRequest,
+	IJailReleaseResponse,
+	IJailSentenceResponse,
 	ILeaderboardEntryResponse,
 	ILevelingConfigResponse,
 	IListParams,
@@ -238,6 +243,27 @@ export const panelsApi = {
 	 */
 	publish: (guildId: string, panelId: string, body: IPanelPublishRequest) =>
 		api.post<IPanelResponse>(`/guilds/${guildId}/panels/${panelId}/publish`, { body }),
+}
+
+/* -------------------------------------------------------------------------- */
+/* Jail                                                                        */
+/* -------------------------------------------------------------------------- */
+
+export const jailApi = {
+	config: (guildId: string, options: TSignal = {}) =>
+		api.get<IJailConfigResponse>(`/guilds/${guildId}/jail`, options),
+
+	updateConfig: (guildId: string, body: IJailConfigUpdateRequest) =>
+		api.patch<IJailConfigResponse>(`/guilds/${guildId}/jail`, { body }),
+
+	sentences: (guildId: string, options: TSignal = {}) =>
+		api.get<IJailSentenceResponse[]>(`/guilds/${guildId}/jail/sentences`, options),
+
+	jail: (guildId: string, body: IJailMemberRequest) =>
+		api.post<IJailSentenceResponse>(`/guilds/${guildId}/jail/sentences`, { body }),
+
+	release: (guildId: string, discordUserId: string) =>
+		api.delete<IJailReleaseResponse>(`/guilds/${guildId}/jail/sentences/${discordUserId}`),
 }
 
 /* -------------------------------------------------------------------------- */

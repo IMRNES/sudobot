@@ -14,13 +14,13 @@ use sudobot_config::AppConfig;
 
 use iam::infrastructure::repository::{
     SeaOrmAutoRoleRepository, SeaOrmEconomyRepository, SeaOrmGuildMemberRepository,
-    SeaOrmGuildRepository, SeaOrmGuildRoleRepository, SeaOrmLevelingRepository,
-    SeaOrmPermissionRepository, SeaOrmRefreshTokenRepository, SeaOrmUserRepository,
-    SeaOrmWelcomeRepository,
+    SeaOrmGuildRepository, SeaOrmGuildRoleRepository, SeaOrmJailRepository,
+    SeaOrmLevelingRepository, SeaOrmPermissionRepository, SeaOrmRefreshTokenRepository,
+    SeaOrmUserRepository, SeaOrmWelcomeRepository,
 };
 use iam::infrastructure::service::{
     Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient, ReqwestGuildDirectory,
-    ReqwestRolePanelPublisher,
+    ReqwestJailEnforcer, ReqwestRolePanelPublisher,
 };
 use iam::presentation::{AppState, build_router};
 
@@ -102,6 +102,8 @@ fn build_state(config: &AppConfig, db: DatabaseConnection) -> Result<AppState> {
         .context("building the discord client")?,
         panel_publisher: ReqwestRolePanelPublisher::new(Some(config.discord.token().to_string()))
             .context("building the panel publisher")?,
+        jail_enforcer: ReqwestJailEnforcer::new(Some(config.discord.token().to_string()))
+            .context("building the jail enforcer")?,
         guild_directory: ReqwestGuildDirectory::new(Some(config.discord.token().to_string()))
             .context("building the guild directory client")?,
         clock: iam::application::ports::SystemClock,
@@ -116,6 +118,7 @@ fn build_state(config: &AppConfig, db: DatabaseConnection) -> Result<AppState> {
         economy: SeaOrmEconomyRepository::new(db.clone()),
         leveling: SeaOrmLevelingRepository::new(db.clone()),
         welcome: SeaOrmWelcomeRepository::new(db.clone()),
+        jail: SeaOrmJailRepository::new(db.clone()),
         auto_roles: SeaOrmAutoRoleRepository::new(db),
     })
 }

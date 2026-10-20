@@ -1,13 +1,13 @@
 use crate::application::ports::SystemClock;
 use crate::infrastructure::repository::{
     SeaOrmAutoRoleRepository, SeaOrmEconomyRepository, SeaOrmGuildMemberRepository,
-    SeaOrmGuildRepository, SeaOrmGuildRoleRepository, SeaOrmLevelingRepository,
-    SeaOrmPermissionRepository, SeaOrmRefreshTokenRepository, SeaOrmUserRepository,
-    SeaOrmWelcomeRepository,
+    SeaOrmGuildRepository, SeaOrmGuildRoleRepository, SeaOrmJailRepository,
+    SeaOrmLevelingRepository, SeaOrmPermissionRepository, SeaOrmRefreshTokenRepository,
+    SeaOrmUserRepository, SeaOrmWelcomeRepository,
 };
 use crate::infrastructure::service::{
     Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient, ReqwestGuildDirectory,
-    ReqwestRolePanelPublisher,
+    ReqwestJailEnforcer, ReqwestRolePanelPublisher,
 };
 use sudobot_config::DashboardAccessConfig;
 
@@ -40,6 +40,13 @@ pub struct AppState {
     /// without a visitor needing any Discord scope of their own.
     pub guild_directory: ReqwestGuildDirectory,
 
+    /// Applies a jail to Discord: the overwrites and the role.
+    ///
+    /// Separate from the bot's own serenity client because the gateway is a
+    /// different process; a jail configured from the dashboard has to be able to
+    /// seal itself without waiting for the bot to restart.
+    pub jail_enforcer: ReqwestJailEnforcer,
+
     pub clock: SystemClock,
 
     /// The one guild the dashboard serves, plus who may open it.
@@ -57,5 +64,8 @@ pub struct AppState {
     pub economy: SeaOrmEconomyRepository,
     pub leveling: SeaOrmLevelingRepository,
     pub welcome: SeaOrmWelcomeRepository,
+
+    /// Jail configuration and the sentences served on it.
+    pub jail: SeaOrmJailRepository,
     pub auto_roles: SeaOrmAutoRoleRepository,
 }

@@ -31,13 +31,13 @@ use iam::domain::guild::{GuildRepository, NewGuild};
 use iam::domain::user::{NewUser, UserRepository};
 use iam::infrastructure::repository::{
     SeaOrmAutoRoleRepository, SeaOrmEconomyRepository, SeaOrmGuildMemberRepository,
-    SeaOrmGuildRepository, SeaOrmGuildRoleRepository, SeaOrmLevelingRepository,
-    SeaOrmPermissionRepository, SeaOrmRefreshTokenRepository, SeaOrmUserRepository,
-    SeaOrmWelcomeRepository,
+    SeaOrmGuildRepository, SeaOrmGuildRoleRepository, SeaOrmJailRepository,
+    SeaOrmLevelingRepository, SeaOrmPermissionRepository, SeaOrmRefreshTokenRepository,
+    SeaOrmUserRepository, SeaOrmWelcomeRepository,
 };
 use iam::infrastructure::service::{
     Argon2PasswordService, JwtTokenService, ReqwestDiscordOAuthClient, ReqwestGuildDirectory,
-    ReqwestRolePanelPublisher,
+    ReqwestJailEnforcer, ReqwestRolePanelPublisher,
 };
 use iam::presentation::{AppState, build_router};
 use sudobot_config::DashboardAccessConfig;
@@ -117,6 +117,10 @@ async fn state(db: DatabaseConnection) -> AppState {
         economy: SeaOrmEconomyRepository::new(db.clone()),
         leveling: SeaOrmLevelingRepository::new(db.clone()),
         welcome: SeaOrmWelcomeRepository::new(db.clone()),
+        // No bot token in tests: the jail enforcer reports itself unconfigured, which
+        // is the state the ignored no-token integration test asserts.
+        jail_enforcer: ReqwestJailEnforcer::new(None).expect("building the jail enforcer"),
+        jail: SeaOrmJailRepository::new(db.clone()),
         auto_roles: SeaOrmAutoRoleRepository::new(db),
     }
 }

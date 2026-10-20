@@ -479,7 +479,31 @@ pub async fn handle_member_join(
     //    unconfigured guild is normal, not an error.
     grant_starting_role(data, ctx, member).await;
 
-    // 3. The welcome message.
+    // 3. A sentence that outlived a departure.
+    //
+    //    Leaving and rejoining is the obvious way to try to escape a jail, and it
+    //    would work if the role were the only record of the sentence — Discord hands
+    //    back a clean member. It is not: the row is the record, so a member whose
+    //    sentence is still live is put straight back in the cell. This is the fast
+    //    path; the sweeper re-checks everyone every minute regardless.
+    match crate::jail_sweeper::rejail_on_rejoin(data, member.guild_id, member.user.id).await {
+        Ok(true) => tracing::info!(
+            guild_id,
+            user_id = member.user.id.get(),
+            "member rejoined with a live jail sentence; re-jailed"
+        ),
+        Ok(false) => {}
+        // Best effort: an unconfigured jail, or a Discord hiccup, must not stop the
+        // member from arriving. The sweeper will retry the re-jail.
+        Err(error) => tracing::warn!(
+            guild_id,
+            user_id = member.user.id.get(),
+            %error,
+            "could not re-apply the jail role on rejoin"
+        ),
+    }
+
+    // 4. The welcome message.
     let guild = data.guilds.find_by_id(guild_id).await?;
     let (guild_name, member_count) = match &guild {
         Some(guild) => (guild.name.clone(), i64::from(guild.member_count)),

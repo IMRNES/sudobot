@@ -17,6 +17,7 @@ mod m20261018_000008_create_autoroles;
 mod m20261019_000001_add_transaction_note;
 mod m20261019_000002_add_welcome_embed;
 mod m20261019_000003_add_ladder_base_role;
+mod m20261020_000001_create_jail;
 
 /// Every migration, in the order they must be applied.
 pub struct Migrator;
@@ -37,6 +38,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261019_000001_add_transaction_note::Migration),
             Box::new(m20261019_000002_add_welcome_embed::Migration),
             Box::new(m20261019_000003_add_ladder_base_role::Migration),
+            Box::new(m20261020_000001_create_jail::Migration),
         ]
     }
 }

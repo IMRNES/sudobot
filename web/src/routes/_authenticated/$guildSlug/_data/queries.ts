@@ -3,6 +3,7 @@ import {
 	autorolesApi,
 	economyApi,
 	guildsApi,
+	jailApi,
 	levelingApi,
 	membersApi,
 	panelsApi,
@@ -190,6 +191,25 @@ export const guildQueries = {
 			queryKey: queryKeys.panels.detail(guildId, panelId),
 			queryFn: ({ signal }) => panelsApi.get(guildId, panelId, { signal }),
 			staleTime: CONFIG_STALE_TIME,
+		}),
+
+	/* ------------------------------------------------------------------- jail */
+
+	jailConfig: (guildId: string) =>
+		queryOptions({
+			queryKey: queryKeys.jail.config(guildId),
+			queryFn: ({ signal }) => jailApi.config(guildId, { signal }),
+			staleTime: CONFIG_STALE_TIME,
+		}),
+
+	jailSentences: (guildId: string) =>
+		queryOptions({
+			queryKey: queryKeys.jail.sentences(guildId),
+			queryFn: ({ signal }) => jailApi.sentences(guildId, { signal }),
+			// Sentences change on the server's sweeper, not because of anything this
+			// page did, so a short stale time keeps "2m left" honest without polling
+			// hard enough to matter.
+			staleTime: 15_000,
 		}),
 
 	/* -------------------------------------------------------------- autoroles */

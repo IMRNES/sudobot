@@ -124,6 +124,7 @@ fn guild_scoped_routes() -> Router<AppState> {
         .nest("/welcome", welcome_routes())
         .nest("/panels", panel_routes())
         .nest("/autoroles", autorole_routes())
+        .nest("/jail", jail_routes())
 }
 
 fn member_routes() -> Router<AppState> {
@@ -194,6 +195,25 @@ fn leveling_routes() -> Router<AppState> {
         .route(
             "/rewards/{reward_id}",
             delete(handlers::leveling::delete_reward),
+        )
+}
+
+fn jail_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/",
+            get(handlers::jail::get_config).patch(handlers::jail::update_config),
+        )
+        .route(
+            "/sentences",
+            get(handlers::jail::list_sentences).post(handlers::jail::jail_member),
+        )
+        // Release is keyed by the member, not a sentence id: a member can only be in
+        // jail once, so the pair identifies the row and a stale id from a re-render
+        // cannot release the wrong person.
+        .route(
+            "/sentences/{discord_user_id}",
+            axum::routing::delete(handlers::jail::release_member),
         )
 }
 

@@ -10,6 +10,7 @@
 //! brings `/economy balance`, `/economy daily` and the rest with it.
 
 pub mod economy;
+pub mod jail;
 pub mod leveling;
 pub mod leveling_admin;
 pub mod roles;
@@ -34,6 +35,7 @@ pub fn all() -> Vec<poise::Command<Data, Error>> {
         // visible from the command name.
         leveling_admin::leveling(),
         roles::rolepanel(),
+        jail::jail(),
     ]
 }
 

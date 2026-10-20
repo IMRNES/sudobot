@@ -10,6 +10,7 @@ use crate::domain::economy::EconomyError;
 use crate::domain::errors::RepositoryError;
 use crate::domain::guild::GuildError;
 use crate::domain::guild_member::GuildMemberError;
+use crate::domain::jail::JailError;
 use crate::domain::leveling::LevelingError;
 use crate::domain::rbac::RbacError;
 use crate::domain::user::UserError;
@@ -211,6 +212,25 @@ impl From<GuildError> for AppError {
     }
 }
 
+impl From<crate::application::ports::EnforcerError> for AppError {
+    fn from(error: crate::application::ports::EnforcerError) -> Self {
+        use crate::application::ports::EnforcerError;
+
+        match error {
+            // Same reasoning as the directory: a missing token is a deployment gap,
+            // not a bad request, so 503 with the missing half named.
+            EnforcerError::NotConfigured => Self::Unavailable(error.to_string()),
+            // Discord refusing a jail is usually "the bot's role sits too low" or a
+            // channel it cannot manage — a server configuration problem the admin has
+            // to fix, which is a 503 rather than a 500: the request was fine and
+            // retrying will not help until those permissions change.
+            EnforcerError::Api(_) | EnforcerError::Transport(_) => {
+                Self::Unavailable(error.to_string())
+            }
+        }
+    }
+}
+
 impl From<crate::application::ports::DirectoryError> for AppError {
     fn from(error: crate::application::ports::DirectoryError) -> Self {
         use crate::application::ports::DirectoryError;
@@ -313,6 +333,25 @@ impl From<WelcomeError> for AppError {
             // configuration or the channel changes.
             WelcomeError::Publisher(_) => Self::Unavailable(error.to_string()),
             WelcomeError::Repository(inner) => inner.into(),
+        }
+    }
+}
+
+impl From<JailError> for AppError {
+    fn from(error: JailError) -> Self {
+        match error {
+            // Not an error the caller caused: the guild has no jail yet, so the
+            // dashboard should render the setup form rather than an alert.
+            JailError::NotConfigured => Self::Conflict(error.to_string()),
+            // Releasing somebody who is already free is handled by the use case and
+            // never reaches here; being *imprisoned* twice does, and it is a conflict
+            // between the request and the current state.
+            JailError::AlreadyImprisoned(_) => Self::Conflict(error.to_string()),
+            JailError::NotImprisoned(_) => Self::NotFound(error.to_string()),
+            JailError::SameRoleAndChannel
+            | JailError::InvalidDuration
+            | JailError::InvalidBailAmount => Self::UnprocessableEntity(error.to_string()),
+            JailError::Repository(inner) => inner.into(),
         }
     }
 }

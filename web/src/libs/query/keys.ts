@@ -87,6 +87,12 @@ export const queryKeys = {
 			[...queryKeys.panels.all(guildId), "detail", panelId] as const,
 	},
 
+	jail: {
+		all: (guildId: string) => ["guilds", guildId, "jail"] as const,
+		config: (guildId: string) => [...queryKeys.jail.all(guildId), "config"] as const,
+		sentences: (guildId: string) => [...queryKeys.jail.all(guildId), "sentences"] as const,
+	},
+
 	autoroles: {
 		all: (guildId: string) => ["guilds", guildId, "autoroles"] as const,
 		list: (guildId: string, params: IListParams) =>

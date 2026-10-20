@@ -15,6 +15,8 @@ pub mod guild_members;
 pub mod guild_role_permissions;
 pub mod guild_roles;
 pub mod guilds;
+pub mod jail_configs;
+pub mod jail_sentences;
 pub mod leveling_configs;
 pub mod leveling_profiles;
 pub mod leveling_rewards;
