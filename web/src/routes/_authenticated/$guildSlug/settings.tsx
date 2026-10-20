@@ -12,7 +12,7 @@ import { Input } from "#/components/ui/input.tsx"
 import { useCan } from "#/hooks/use-can.ts"
 import { useMe } from "#/hooks/use-me.ts"
 import { guildsApi } from "#/libs/api/resources.ts"
-import type { IGuildDetail } from "#/libs/api/types.ts"
+import type { IGuildDetail, IGuildSummary } from "#/libs/api/types.ts"
 import { normalizeApiError } from "#/libs/errors/index.ts"
 import { queryKeys } from "#/libs/query/keys.ts"
 import { formatDateTime, formatNumber } from "#/libs/utils.ts"
@@ -46,7 +46,7 @@ function SettingsPage() {
 			<QueryBoundary isLoading={query.isLoading} isError={query.isError} error={query.error}>
 				{query.data ? (
 					<>
-						<GuildMetadata guild={query.data} />
+						<GuildMetadata guild={query.data} viewerRole={guild} />
 						<GuildNameForm
 							key={query.data.name}
 							guild={query.data}
@@ -60,11 +60,32 @@ function SettingsPage() {
 	)
 }
 
-function GuildMetadata({ guild }: { guild: IGuildDetail }) {
+/**
+ * Read-only facts about the guild.
+ *
+ * `viewerRole` is separate from `guild` on purpose. The role shown here is *the
+ * reader's* role, which is per-person and comes from the session payload — the
+ * guild detail endpoint describes the server and has no notion of who is asking.
+ * The two used to be one object, and because `/guilds/{id}` does not send
+ * `role_slug` the card came back blank rather than wrong, which is exactly the
+ * kind of bug that survives review: nothing crashed, one value was simply empty.
+ */
+function GuildMetadata({
+	guild,
+	viewerRole,
+}: {
+	guild: IGuildDetail
+	/** The caller's role in this guild, from `/me`; `null` before the session loads. */
+	viewerRole: IGuildSummary | null
+}) {
 	return (
 		<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 			<StatCard label="Members" value={formatNumber(guild.member_count)} />
-			<StatCard label="Your role" value={guild.role_slug} hint={guild.role_name} />
+			<StatCard
+				label="Your role"
+				value={viewerRole?.role_name ?? "—"}
+				hint={viewerRole?.role_slug}
+			/>
 			<StatCard
 				label="Server id"
 				value={<span className="font-mono text-base">{guild.id}</span>}

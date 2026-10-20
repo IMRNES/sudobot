@@ -9,6 +9,15 @@ import { cn } from "#/libs/utils.ts"
  * Every data-backed panel in the app goes through this, so "loading", "failed"
  * and "loaded but empty" look the same everywhere and no page silently shows a
  * zero value while its request is still in flight.
+ *
+ * The loaded branch is returned *as-is*, with no wrapper element. It used to
+ * always wrap in a `<div>`, which silently broke layout: a `<div>` is its own box,
+ * so a page laying its cards out with `flex flex-col gap-6` got no gap between the
+ * cards *inside* the boundary — they were children of a plain block, not of the
+ * flex column. That is how the settings page ended up with its two cards welded
+ * together while the row above them had its normal 24px gutters. A wrapper that
+ * only sometimes matters is a wrapper that should not exist; `className` still
+ * gets one for the callers that ask for it.
  */
 export function QueryBoundary({
 	isLoading,
@@ -29,10 +38,15 @@ export function QueryBoundary({
 	/** Rendered when `isEmpty` is true and the query succeeded. */
 	empty?: React.ReactNode
 	isEmpty?: boolean
+	/** Applies only when a box is genuinely wanted; omitting it renders no wrapper. */
 	className?: string
 }) {
+	/** Wrap only when a class was asked for, so layout stays the parent's business. */
+	const box = (node: React.ReactNode): React.ReactNode =>
+		className === undefined ? node : <div className={className}>{node}</div>
+
 	if (isLoading) {
-		return <div className={className}>{skeleton ?? <DefaultSkeleton />}</div>
+		return box(skeleton ?? <DefaultSkeleton />)
 	}
 
 	if (isError) {
@@ -50,10 +64,10 @@ export function QueryBoundary({
 	}
 
 	if (isEmpty && empty !== undefined) {
-		return <div className={className}>{empty}</div>
+		return box(empty)
 	}
 
-	return <div className={className}>{children}</div>
+	return box(children)
 }
 
 function DefaultSkeleton() {

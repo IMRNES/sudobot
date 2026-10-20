@@ -61,6 +61,12 @@ export interface IUser {
 	is_super_admin: boolean
 }
 
+/**
+ * A guild as `/me` reports it: the server, plus **this viewer's** role in it.
+ *
+ * `role_slug`, `role_name` and `permissions` are per-person facts — two admins
+ * opening the same guild get different values. Only this shape carries them.
+ */
 export interface IGuildSummary {
 	id: string
 	name: string
@@ -72,10 +78,26 @@ export interface IGuildSummary {
 	permissions: string[]
 }
 
-export interface IGuildDetail extends IGuildSummary {
+/**
+ * A guild as `/guilds/{id}` reports it: facts about the server, no viewer.
+ *
+ * Deliberately **not** an extension of `IGuildSummary`. It used to be, which
+ * claimed this response carries `role_slug` and `permissions`; the endpoint sends
+ * neither, so reading them yielded `undefined` and rendered a blank where a value
+ * belonged. TypeScript could not catch it because the type said the field was
+ * there — a lie in a type is worse than a missing field, because it disables the
+ * check that would have found the bug.
+ */
+export interface IGuildDetail {
+	id: string
+	name: string
+	icon_url: string | null
+	member_count: number
+	bot_present: boolean
 	created_at: string
 	updated_at: string
-	owner_discord_id: string
+	/** `null` for a guild with no recorded owner (e.g. imported before OAuth). */
+	owner_discord_id: string | null
 }
 
 /**
