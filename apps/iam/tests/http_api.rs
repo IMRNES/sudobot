@@ -28,6 +28,8 @@ use uuid::Uuid;
 
 use iam::application::ports::{Clock, SystemClock, TokenService};
 use iam::domain::guild::{GuildRepository, NewGuild};
+use iam::domain::guild_member::GuildMemberRepository;
+use iam::domain::rbac::GuildRoleRepository;
 use iam::domain::user::{NewUser, UserRepository};
 use iam::infrastructure::repository::{
     SeaOrmAutoRoleRepository, SeaOrmEconomyRepository, SeaOrmGuildMemberRepository,
@@ -511,11 +513,41 @@ async fn the_directory_refuses_an_installation_with_no_bot_token() {
     let Some(db) = connect().await else { return };
     let users = SeaOrmUserRepository::new(db.clone());
     let guilds = SeaOrmGuildRepository::new(db.clone());
+    let guild_members = SeaOrmGuildMemberRepository::new(db.clone());
+    let guild_roles = SeaOrmGuildRoleRepository::new(db.clone());
     let app_state = state(db).await;
     let app = mount(app_state.clone());
 
     let guild_id = seed_guild(&guilds, "Directory Guild").await;
     let user_id = seed_user(&users, true).await;
+
+    // The permission gate checks membership before it checks the matrix, so the
+    // super-admin must also be a member of the guild for the request to reach the
+    // directory use case. Seed an admin role and a membership.
+    let admin_role = guild_roles
+        .create(
+            guild_id,
+            iam::domain::rbac::slugs::ADMIN,
+            "Admin",
+            None,
+            true,
+            0,
+        )
+        .await
+        .expect("the admin role should insert");
+
+    guild_members
+        .create(iam::domain::guild_member::NewGuildMember {
+            id: Uuid::new_v4(),
+            guild_id,
+            user_id,
+            guild_role_id: admin_role.id,
+            discord_permissions: 0,
+            discord_nick: None,
+        })
+        .await
+        .expect("the membership should insert");
+
     let token = token_for(&app_state, user_id).await;
 
     let response = app
