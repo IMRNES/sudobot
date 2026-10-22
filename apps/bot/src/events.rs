@@ -17,6 +17,7 @@ use iam::application::welcome::{
     ResolvePanelButtonUseCase, WelcomeKind,
 };
 use iam::domain::guild::{GuildPatch, NewGuild};
+use iam::domain::leveling::plan_role_changes;
 use iam::domain::welcome::OptionBehavior;
 
 use crate::data::Data;
@@ -515,16 +516,22 @@ pub async fn handle_member_join(
         }
     }
 
-    // 2. The level-0 rung.
+    // 2. The ladder.
     //
-    //    Nobody levels up *into* level 0, so the leveling engine's level-change path
-    //    can never grant it. Without this a new arrival has no title until they
-    //    reach level 3, which makes the ladder's first rung dead weight — and it is
-    //    supposed to be the badge every member wears from day one.
+    //    A join is not only an occasion to *add*. A member who left and came back
+    //    mid-climb can be wearing rungs their level no longer entitles them to, and
+    //    a member who never collected the level-0 badge has no title at all. Both
+    //    halves are decided by `plan_role_changes`, the same pure function the
+    //    level-up path uses, so the join path and the message path cannot disagree
+    //    about who wears what.
+    //
+    //    Nobody levels up *into* level 0, so the level-change path can never grant
+    //    it; the reconcile is what puts `Neophyte` on a new arrival. Without it the
+    //    ladder's first rung is dead weight until the next deploy or manual sync.
     //
     //    Best effort, and silent when the guild has not provisioned the ladder: an
     //    unconfigured guild is normal, not an error.
-    grant_starting_role(data, ctx, member).await;
+    reconcile_level_roles_on_join(data, ctx, member).await;
 
     // 3. A sentence that outlived a departure.
     //
@@ -620,13 +627,29 @@ pub async fn handle_member_join(
     Ok(())
 }
 
-/// Grants a new member the ladder's level-0 rung.
+/// Reconciles a joining member's ladder roles against their stored level.
 ///
-/// The one reward the level-change path can never deliver, because nobody levels up
-/// *into* level 0. A guild that has not provisioned the ladder has no level-0
-/// reward, and this is a no-op — an unconfigured server is the normal case, not an
-/// error worth a log line above debug.
-async fn grant_starting_role(data: &Data, ctx: &serenity::Context, member: &serenity::Member) {
+/// The level-up path already decides both directions through
+/// `plan_role_changes`; this is that same decision applied to a join. It matters
+/// because a join is the one moment the ladder is re-evaluated for a member who
+/// has not just earned XP, and the path that *does* earn XP cannot reach level 0 —
+/// nobody levels up into it — so a member who joins, or rejoins, and never sends a
+/// message keeps no badge at all, or keeps rungs their level no longer entitles
+/// them to.
+///
+/// Revocations are applied before grants, for the same reason `sync_members` does
+/// it: a replacing ladder shows one rung, and granting first would leave the member
+/// visibly wearing two for a moment.
+///
+/// Best effort throughout. A guild with no ladder, a member with no profile, or a
+/// Discord refusal is logged and otherwise left alone — a failed join reconciliation
+/// must not stop the member from arriving, and the startup and manual syncs re-run
+/// the same function against every profile.
+async fn reconcile_level_roles_on_join(
+    data: &Data,
+    ctx: &serenity::Context,
+    member: &serenity::Member,
+) {
     // Bots do not level and must not collect the guild's badges.
     if member.user.bot {
         return;
@@ -637,39 +660,96 @@ async fn grant_starting_role(data: &Data, ctx: &serenity::Context, member: &sere
     let rewards = match data.leveling.list_rewards(guild_id).await {
         Ok(rewards) => rewards,
         Err(error) => {
-            debug!(%error, guild_id, "could not read rewards for the starting rung");
+            debug!(%error, guild_id, "could not read rewards to reconcile a joining member");
             return;
         }
     };
 
-    let Some(starting) = rewards.iter().find(|reward| reward.level == 0) else {
-        debug!(
-            guild_id,
-            "no level-0 reward configured; skipping the starting role"
-        );
-        return;
-    };
-
-    // Already wearing it — a rejoin, or the welcome path running twice.
-    if member
-        .roles
-        .contains(&serenity::RoleId::new(starting.role_id))
-    {
+    // No ladder provisioned: nothing to decide, and the normal case for a guild
+    // that has never configured leveling.
+    if rewards.is_empty() {
         return;
     }
 
-    if let Err(error) = member
-        .add_role(ctx, serenity::RoleId::new(starting.role_id))
+    let config = match data.leveling.find_config(guild_id).await {
+        Ok(config) => config,
+        Err(error) => {
+            debug!(%error, guild_id, "could not read leveling config for a joining member");
+            return;
+        }
+    };
+
+    // A member who has never earned XP has no profile row. Level 0 is exactly what
+    // they qualify for, so the plan is computed against it rather than skipped.
+    let level = match data
+        .leveling
+        .find_profile(guild_id, member.user.id.get())
         .await
     {
+        Ok(Some(profile)) => profile.level,
+        Ok(None) => 0,
+        Err(error) => {
+            debug!(%error, guild_id, "could not read a joining member's profile");
+            return;
+        }
+    };
+
+    let held: Vec<u64> = member.roles.iter().map(|role| role.get()).collect();
+
+    let changes = plan_role_changes(&rewards, level, &held, config.stack_roles);
+
+    if changes.is_empty() {
+        return;
+    }
+
+    debug!(
+        guild_id,
+        user_id = member.user.id.get(),
+        level,
+        stack_roles = config.stack_roles,
+        grants = ?changes.grant,
+        revocations = ?changes.revoke,
+        "reconciling a joining member's ladder roles"
+    );
+
+    // Revoke first: a replacing ladder must never show two rungs at once.
+    if !changes.revoke.is_empty() {
+        let stale: Vec<serenity::RoleId> = changes
+            .revoke
+            .iter()
+            .map(|role_id| serenity::RoleId::new(*role_id))
+            .collect();
+
+        if let Err(error) = member.remove_roles(ctx, &stale).await {
+            warn!(
+                %error,
+                guild_id,
+                user_id = member.user.id.get(),
+                roles = stale.len(),
+                "could not remove superseded ladder roles from a joining member"
+            );
+        }
+    }
+
+    if changes.grant.is_empty() {
+        return;
+    }
+
+    let roles: Vec<serenity::RoleId> = changes
+        .grant
+        .iter()
+        .map(|role_id| serenity::RoleId::new(*role_id))
+        .collect();
+
+    if let Err(error) = member.add_roles(ctx, &roles).await {
         // The usual cause is the same one `/leveling ladder` warns about: a reward
         // role positioned above the bot's own role.
         warn!(
             %error,
             guild_id,
             user_id = member.user.id.get(),
-            role_id = starting.role_id,
-            "could not grant the starting level role"
+            roles = roles.len(),
+            "could not grant a joining member's ladder roles"
         );
     }
 }
