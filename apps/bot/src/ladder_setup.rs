@@ -51,8 +51,15 @@ pub struct ProvisionReport {
     pub icons_applied: usize,
     /// Rungs whose reward row was created.
     pub rewards_created: usize,
-    /// Rungs that already had a reward row.
+    /// Rungs that already had a reward row at the correct level.
     pub rewards_reused: usize,
+    /// Rungs whose existing reward row was moved to the level the ladder now
+    /// specifies.
+    ///
+    /// Not folded into `rewards_reused`: a row that already sat at the right
+    /// level and a row that had to be relocated are different outcomes, and the
+    /// second is the one that tells an operator their thresholds changed.
+    pub rewards_moved: usize,
     /// Rungs whose position changed, so the ladder reads as a climb.
     pub roles_repositioned: usize,
     /// Rungs whose reward row could not be written.
@@ -79,6 +86,10 @@ impl ProvisionReport {
             format!("{} rewards created", self.rewards_created),
             format!("{} rewards already present", self.rewards_reused),
         ];
+
+        if self.rewards_moved > 0 {
+            parts.push(format!("{} rewards moved", self.rewards_moved));
+        }
 
         if self.bot_role_raised {
             parts.push("my role was raised above the ladder".to_string());
@@ -280,8 +291,13 @@ pub async fn provision(
 
         ordered.push(role_id);
 
-        // The reward row. A conflict means it is already configured, which is a
-        // success for an idempotent run, not a failure.
+        // The reward row. A fresh insert is the expected case for a guild that
+        // has never provisioned. A conflict means the level already has a reward
+        // row: if that row's role id matches this rung, the ladder is already
+        // wired and the run is a no-op. If it does *not* match, someone moved the
+        // rung's threshold (or provisioned a different ladder over the same guild)
+        // — move the existing row to this rung's level so the member is still
+        // placed at the level the badge actually means.
         match data
             .leveling
             .create_reward(LevelReward {
@@ -297,12 +313,69 @@ pub async fn provision(
             .await
         {
             Ok(_) => report.rewards_created += 1,
-            // Only a genuine unique violation means "already configured".
-            // `is_already_present` rather than a `Conflict` match: a foreign-key
-            // failure used to arrive as the same variant, so a reward that could
-            // not be written at all was counted as one that already existed and the
-            // run reported success over a ladder with no rewards wired to it.
-            Err(error) if error.is_already_present() => report.rewards_reused += 1,
+            Err(error) if error.is_already_present() => {
+                let existing_level = match data.leveling.list_rewards(guild_id.get()).await {
+                    Ok(rewards) => rewards
+                        .iter()
+                        .find(|reward| reward.role_id == role_id.get())
+                        .map(|reward| reward.level),
+                    Err(_) => None,
+                };
+
+                if existing_level == Some(rung.level) {
+                    report.rewards_reused += 1;
+                } else {
+                    // The row is for this rung's role but sits at a different
+                    // level: the ladder's thresholds changed since it was
+                    // written. Move it rather than leave the title earned at a
+                    // level nobody is told about.
+                    match data.leveling.list_rewards(guild_id.get()).await {
+                        Ok(rewards) => {
+                            let row = rewards
+                                .iter()
+                                .find(|reward| reward.role_id == role_id.get());
+
+                            match row {
+                                Some(reward) => {
+                                    match data
+                                        .leveling
+                                        .update_reward(reward.id, rung.level, role_id.get())
+                                        .await
+                                    {
+                                        Ok(_) => report.rewards_moved += 1,
+                                        Err(error) => {
+                                            report.rewards_failed += 1;
+                                            warn!(
+                                                guild_id = guild_id.get(),
+                                                rung = rung.name,
+                                                %error,
+                                                "could not move a ladder reward to its new level"
+                                            );
+                                        }
+                                    }
+                                }
+                                None => {
+                                    report.rewards_failed += 1;
+                                    warn!(
+                                        guild_id = guild_id.get(),
+                                        rung = rung.name,
+                                        "the level is taken by a reward row whose role is not this rung"
+                                    );
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            report.rewards_failed += 1;
+                            warn!(
+                                guild_id = guild_id.get(),
+                                rung = rung.name,
+                                %error,
+                                "could not read the ladder's reward rows"
+                            );
+                        }
+                    }
+                }
+            }
             Err(error) => {
                 report.rewards_failed += 1;
                 warn!(
@@ -962,6 +1035,7 @@ mod tests {
             icons_applied: 0,
             rewards_created: 21,
             rewards_reused: 0,
+            rewards_moved: 0,
             roles_repositioned: 0,
             rewards_failed: 0,
             highest_ungrantable: None,
@@ -1056,8 +1130,9 @@ mod tests {
     #[test]
     fn titles_come_from_the_ladder() {
         assert_eq!(title_for(0), "Neophyte");
-        assert_eq!(title_for(7), "Apprentice");
-        assert_eq!(title_for(2000), "IMMORTAL");
+        assert_eq!(title_for(7), "Neophyte");
+        assert_eq!(title_for(10), "Apprentice");
+        assert_eq!(title_for(10000), "IMMORTAL");
         assert_eq!(title_for(-1), "—");
     }
 

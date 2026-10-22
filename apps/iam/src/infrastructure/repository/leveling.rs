@@ -556,6 +556,29 @@ impl LevelingRepository for SeaOrmLevelingRepository {
         Ok(created.into())
     }
 
+    async fn update_reward(
+        &self,
+        id: Uuid,
+        level: i32,
+        role_id: u64,
+    ) -> Result<LevelReward, RepositoryError> {
+        let model = leveling_rewards::ActiveModel {
+            id: sea_orm::ActiveValue::Set(id),
+            guild_id: sea_orm::ActiveValue::NotSet,
+            level: sea_orm::ActiveValue::Set(level),
+            role_id: sea_orm::ActiveValue::Set(snowflake(role_id)),
+            keep_on_demote: sea_orm::ActiveValue::NotSet,
+            created_at: sea_orm::ActiveValue::NotSet,
+        };
+
+        let updated = leveling_rewards::Entity::update(model)
+            .exec(&self.db)
+            .await
+            .map_err(|error| map_db_err(REWARD, REWARD_CONFLICT, error))?;
+
+        Ok(updated.into())
+    }
+
     async fn delete_reward(&self, id: Uuid) -> Result<(), RepositoryError> {
         let result = leveling_rewards::Entity::delete_by_id(id)
             .exec(&self.db)

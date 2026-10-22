@@ -210,7 +210,7 @@ mod tests {
         let lines: Vec<&str> = rendered.lines().collect();
 
         assert_eq!(lines.len(), LADDER.len());
-        assert!(lines[0].contains("2000"), "the top rung comes first");
+        assert!(lines[0].contains("10000"), "the top rung comes first");
         assert!(lines[0].contains("IMMORTAL"));
         assert!(lines[lines.len() - 1].contains("Neophyte"));
     }

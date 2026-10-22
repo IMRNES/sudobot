@@ -11,8 +11,14 @@
 //! member's profile and another in the reward list.
 //!
 //! Levels are not evenly spaced and that is the point: the gaps widen as the
-//! curve steepens, so `Apprentice` is a first-week badge and `IMMORTAL` is a
+//! curve steepens, so `Apprentice` is a first-month badge and `IMMORTAL` is a
 //! resident's. The spacing here is the design, not an artefact of the curve.
+//!
+//! The thresholds were tightened in 2026-10: the original ladder reached
+//! `IMMORTAL` at level 2000, which the Mrn curve crosses in a few hundred
+//! messages. The gaps now widen roughly geometrically, so the middle rungs are
+//! measured in thousands of messages rather than hundreds and the top rung is
+//! something a member works toward for months rather than days.
 //!
 //! The first rung is level 0, which is where everybody starts. A level-0 reward
 //! therefore never fires from a level *change* — nobody levels up into it — and is
@@ -98,102 +104,102 @@ pub const LADDER: [LadderRung; 21] = [
         colour: 0x95A5A6,
     },
     LadderRung {
-        level: 3,
+        level: 10,
         name: "Apprentice",
         colour: 0x7F8C8D,
     },
     LadderRung {
-        level: 10,
+        level: 35,
         name: "Pathfinder",
         colour: 0x27AE60,
     },
     LadderRung {
-        level: 20,
+        level: 75,
         name: "Seeker",
         colour: 0x2ECC71,
     },
     LadderRung {
-        level: 40,
+        level: 150,
         name: "Visionary",
         colour: 0x16A085,
     },
     LadderRung {
-        level: 80,
+        level: 300,
         name: "Voyager",
         colour: 0x1ABC9C,
     },
     LadderRung {
-        level: 100,
+        level: 450,
         name: "Adept",
         colour: 0x3498DB,
     },
     LadderRung {
-        level: 120,
+        level: 600,
         name: "Hacker",
         colour: 0x2980B9,
     },
     LadderRung {
-        level: 240,
+        level: 900,
         name: "Mage",
         colour: 0x9B59B6,
     },
     LadderRung {
-        level: 280,
+        level: 1200,
         name: "Wizard",
         colour: 0x8E44AD,
     },
     LadderRung {
-        level: 300,
+        level: 1500,
         name: "Master",
         colour: 0xE67E22,
     },
     LadderRung {
-        level: 350,
+        level: 1800,
         name: "Guru",
         colour: 0xF39C12,
     },
     LadderRung {
-        level: 400,
+        level: 2200,
         name: "Legend",
         colour: 0xE74C3C,
     },
     LadderRung {
-        level: 450,
+        level: 2700,
         name: "Guardian",
         colour: 0xC0392B,
     },
     LadderRung {
-        level: 500,
+        level: 3300,
         name: "TITAN",
         colour: 0xD35400,
     },
     LadderRung {
-        level: 600,
+        level: 4000,
         name: "SAGE",
         colour: 0xF1C40F,
     },
     LadderRung {
-        level: 700,
+        level: 4800,
         name: "VANGUARD",
         colour: 0xFF6B35,
     },
     LadderRung {
-        level: 800,
+        level: 5700,
         name: "ASCENDED",
         colour: 0xFF4D6D,
     },
     LadderRung {
-        level: 900,
+        level: 6700,
         name: "DEITY",
         colour: 0xA855F7,
     },
     LadderRung {
-        level: 1000,
+        level: 7800,
         name: "MYTHIC",
         colour: 0xF43F5E,
     },
     LadderRung {
-        level: 2000,
+        level: 10000,
         name: "IMMORTAL",
         colour: 0xFFD700,
     },
@@ -236,26 +242,26 @@ mod tests {
     /// than silently changing what the live guild's members are called.
     const EXPECTED: [(i32, &str); 21] = [
         (0, "Neophyte"),
-        (3, "Apprentice"),
-        (10, "Pathfinder"),
-        (20, "Seeker"),
-        (40, "Visionary"),
-        (80, "Voyager"),
-        (100, "Adept"),
-        (120, "Hacker"),
-        (240, "Mage"),
-        (280, "Wizard"),
-        (300, "Master"),
-        (350, "Guru"),
-        (400, "Legend"),
-        (450, "Guardian"),
-        (500, "TITAN"),
-        (600, "SAGE"),
-        (700, "VANGUARD"),
-        (800, "ASCENDED"),
-        (900, "DEITY"),
-        (1000, "MYTHIC"),
-        (2000, "IMMORTAL"),
+        (10, "Apprentice"),
+        (35, "Pathfinder"),
+        (75, "Seeker"),
+        (150, "Visionary"),
+        (300, "Voyager"),
+        (450, "Adept"),
+        (600, "Hacker"),
+        (900, "Mage"),
+        (1200, "Wizard"),
+        (1500, "Master"),
+        (1800, "Guru"),
+        (2200, "Legend"),
+        (2700, "Guardian"),
+        (3300, "TITAN"),
+        (4000, "SAGE"),
+        (4800, "VANGUARD"),
+        (5700, "ASCENDED"),
+        (6700, "DEITY"),
+        (7800, "MYTHIC"),
+        (10000, "IMMORTAL"),
     ];
 
     #[test]
@@ -293,10 +299,18 @@ mod tests {
     fn a_level_between_rungs_holds_the_last_one_passed() {
         assert_eq!(rung_for_level(0).unwrap().name, "Neophyte");
         assert_eq!(rung_for_level(2).unwrap().name, "Neophyte");
-        assert_eq!(rung_for_level(3).unwrap().name, "Apprentice");
-        assert_eq!(rung_for_level(9).unwrap().name, "Apprentice");
-        assert_eq!(rung_for_level(1999).unwrap().name, "MYTHIC");
-        assert_eq!(rung_for_level(2000).unwrap().name, "IMMORTAL");
+        assert_eq!(rung_for_level(9).unwrap().name, "Neophyte");
+        assert_eq!(rung_for_level(10).unwrap().name, "Apprentice");
+        assert_eq!(rung_for_level(34).unwrap().name, "Apprentice");
+        assert_eq!(rung_for_level(35).unwrap().name, "Pathfinder");
+        assert_eq!(rung_for_level(74).unwrap().name, "Pathfinder");
+        assert_eq!(rung_for_level(75).unwrap().name, "Seeker");
+        assert_eq!(rung_for_level(149).unwrap().name, "Seeker");
+        assert_eq!(rung_for_level(150).unwrap().name, "Visionary");
+        assert_eq!(rung_for_level(299).unwrap().name, "Visionary");
+        assert_eq!(rung_for_level(300).unwrap().name, "Voyager");
+        assert_eq!(rung_for_level(9999).unwrap().name, "MYTHIC");
+        assert_eq!(rung_for_level(10000).unwrap().name, "IMMORTAL");
         // Past the top rung the ladder saturates rather than running off the end.
         assert_eq!(rung_for_level(50_000).unwrap().name, "IMMORTAL");
     }
@@ -308,10 +322,10 @@ mod tests {
 
     #[test]
     fn rung_at_is_exact_while_rung_for_level_is_not() {
-        assert!(rung_at(4).is_none());
-        assert_eq!(rung_at(3).unwrap().name, "Apprentice");
-        // Level 4 is `Apprentice` by qualification but has no rung of its own.
-        assert_eq!(rung_for_level(4).unwrap().name, "Apprentice");
+        assert!(rung_at(11).is_none());
+        assert_eq!(rung_at(10).unwrap().name, "Apprentice");
+        // Level 11 is `Apprentice` by qualification but has no rung of its own.
+        assert_eq!(rung_for_level(11).unwrap().name, "Apprentice");
     }
 
     #[test]

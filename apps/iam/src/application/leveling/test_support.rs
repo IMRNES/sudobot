@@ -109,6 +109,10 @@ pub enum LevelingCall {
     CreateReward {
         level: i32,
     },
+    UpdateReward {
+        id: Uuid,
+        level: i32,
+    },
     DeleteReward {
         id: Uuid,
     },
@@ -604,6 +608,44 @@ impl LevelingRepository for FakeLevelingRepository {
 
         state.rewards.push(reward.clone());
         Ok(reward)
+    }
+
+    async fn update_reward(
+        &self,
+        id: Uuid,
+        level: i32,
+        role_id: u64,
+    ) -> Result<LevelReward, RepositoryError> {
+        let mut state = self.state();
+        state.calls.push(LevelingCall::UpdateReward { id, level });
+
+        if state.fail_writes {
+            return Err(RepositoryError::database("the fake was told to fail"));
+        }
+
+        // Gather what we need under one shared borrow, then release it before
+        // taking the mutable borrow that updates the row.
+        let Some(existing) = state.rewards.iter().find(|reward| reward.id == id) else {
+            return Err(RepositoryError::not_found("level reward"));
+        };
+        let existing_guild_id = existing.guild_id;
+
+        let conflict = state
+            .rewards
+            .iter()
+            .any(|reward| reward.guild_id == existing_guild_id && reward.level == level);
+        if conflict {
+            return Err(RepositoryError::conflict(
+                "a reward already exists for this level",
+            ));
+        }
+
+        let Some(existing) = state.rewards.iter_mut().find(|reward| reward.id == id) else {
+            return Err(RepositoryError::not_found("level reward"));
+        };
+        existing.level = level;
+        existing.role_id = role_id;
+        Ok(existing.clone())
     }
 
     async fn delete_reward(&self, id: Uuid) -> Result<(), RepositoryError> {

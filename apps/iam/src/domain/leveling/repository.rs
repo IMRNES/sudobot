@@ -118,6 +118,21 @@ pub trait LevelingRepository: Send + Sync {
         reward: LevelReward,
     ) -> impl Future<Output = Result<LevelReward, RepositoryError>> + Send;
 
+    /// Moves a reward row to a new level, keeping its id and role.
+    ///
+    /// The ladder is data: when a rung's threshold changes, the reward that grants
+    /// it has to move with it, or the member is placed at the old level and the
+    /// title is earned at the wrong point of the climb. Idempotent — an update to
+    /// the level the row already sits at is a successful no-op, and
+    /// `is_already_present` distinguishes that from a row that collided with
+    /// another rung's level.
+    fn update_reward(
+        &self,
+        id: Uuid,
+        level: i32,
+        role_id: u64,
+    ) -> impl Future<Output = Result<LevelReward, RepositoryError>> + Send;
+
     fn delete_reward(&self, id: Uuid) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Reward roles a member at `level` should hold, ordered by level.
