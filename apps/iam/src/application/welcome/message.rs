@@ -184,8 +184,8 @@ fn default_template(kind: WelcomeKind) -> &'static str {
         // A goodbye has nobody to greet, and `{mention}` would ping somebody who
         // has already gone.
         WelcomeKind::Goodbye => {
-            "The connection from {user} to {guild} has been closed. \
-             The next CTF challenge is waiting whenever you are ready to reconnect."
+            "Goodbye {user} from {guild}! Your connection has been closed. \
+             We hope to see you again soon."
         }
     }
 }

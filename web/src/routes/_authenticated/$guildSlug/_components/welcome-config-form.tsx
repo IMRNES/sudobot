@@ -470,7 +470,7 @@ function WelcomeForm({
 											disabled={!canWrite}
 											onBlur={field.handleBlur}
 											onChange={(event) => field.handleChange(event.target.value)}
-											placeholder="{user} left {guild}."
+											placeholder="Goodbye {user} from {guild}! Your connection has been closed. We hope to see you again soon."
 											rows={3}
 										/>
 										<PlaceholderHints />

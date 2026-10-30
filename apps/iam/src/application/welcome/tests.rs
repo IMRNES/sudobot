@@ -141,7 +141,7 @@ async fn the_goodbye_path_is_configured_independently_of_the_welcome() {
 }
 
 #[tokio::test]
-async fn a_goodbye_without_branding_uses_the_ctf_default_copy_and_image() {
+async fn a_goodbye_without_branding_uses_the_default_copy_and_image() {
     let store = store();
     seed_config(
         &store,
@@ -161,8 +161,8 @@ async fn a_goodbye_without_branding_uses_the_ctf_default_copy_and_image() {
 
     assert_eq!(
         goodbye.content,
-        "The connection from ada to Sudobot Test has been closed. \
-         The next CTF challenge is waiting whenever you are ready to reconnect."
+        "Goodbye ada from Sudobot Test! Your connection has been closed. \
+         We hope to see you again soon."
     );
     assert_eq!(
         goodbye
