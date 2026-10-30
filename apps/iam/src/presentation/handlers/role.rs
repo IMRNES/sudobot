@@ -69,7 +69,10 @@ pub async fn get_role(
     let role_id = parse_uuid(&role_id, "roleId")?;
     authorize(&state, actor.id, guild_id, "roles:read").await?;
 
-    let use_case = GetGuildRoleUseCase::new(state.guild_roles.clone());
+    let use_case = GetGuildRoleUseCase::with_counts(
+        state.guild_roles.clone(),
+        MemberRoleCounts::new(state.guild_members.clone()),
+    );
     let role = use_case.execute(guild_id, role_id).await?;
 
     Ok(Json(role_response(role)))
@@ -130,7 +133,10 @@ pub async fn update_role(
 
     // Re-read through the detail use case so the response carries the matrix and
     // the member count, exactly like the GET.
-    let detail = GetGuildRoleUseCase::new(state.guild_roles.clone());
+    let detail = GetGuildRoleUseCase::with_counts(
+        state.guild_roles.clone(),
+        MemberRoleCounts::new(state.guild_members.clone()),
+    );
     Ok(Json(role_response(
         detail.execute(guild_id, role_id).await?,
     )))

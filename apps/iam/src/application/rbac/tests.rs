@@ -10,7 +10,7 @@ use super::matrix::{ReplaceRolePermissionsCommand, ReplaceRolePermissionsUseCase
 use super::permissions::ListPermissionsUseCase;
 use super::roles::{
     CreateGuildRoleCommand, CreateGuildRoleUseCase, DeleteGuildRoleUseCase, GetGuildRoleUseCase,
-    ListGuildRolesUseCase,
+    ListGuildRolesUseCase, MemberRoleCounts,
 };
 use super::test_support::{
     FakeGuildMembers, FakeGuildRoles, FakePermissionCatalog, FakeStore, store,
@@ -112,6 +112,36 @@ async fn dropping_the_last_dashboard_manage_grant_is_refused() {
         .cloned()
         .unwrap_or_default();
     assert!(stored.iter().any(|name| name == names::DASHBOARD_MANAGE));
+}
+
+#[tokio::test]
+async fn getting_a_role_with_counts_reports_members_holding_it() {
+    let role_id = Uuid::new_v4();
+    let store = store();
+    {
+        let mut state = lock(&store);
+        role(
+            &mut state,
+            role_id,
+            "moderator",
+            false,
+            &[names::MEMBERS_READ],
+        );
+        member(&mut state, Uuid::new_v4(), role_id);
+        member(&mut state, Uuid::new_v4(), role_id);
+    }
+
+    let use_case = GetGuildRoleUseCase::with_counts(
+        FakeGuildRoles::new(store.clone()),
+        MemberRoleCounts::new(FakeGuildMembers::new(store)),
+    );
+
+    let view = use_case
+        .execute(GUILD, role_id)
+        .await
+        .expect("the role should be readable");
+
+    assert_eq!(view.member_count, 2);
 }
 
 #[tokio::test]
