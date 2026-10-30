@@ -103,7 +103,11 @@ impl<A: AutoRoleRepository> UpdateAutoRoleUseCase<A> {
         Self { auto_roles }
     }
 
-    pub async fn execute(&self, command: UpdateAutoRoleCommand) -> Result<AutoRole, AutoRoleError> {
+    pub async fn execute(
+        &self,
+        guild_id: u64,
+        command: UpdateAutoRoleCommand,
+    ) -> Result<AutoRole, AutoRoleError> {
         // The rule is read first so the delay can be validated against the trigger
         // it will end up with: a patch that only changes `delay_seconds` still has
         // to satisfy the trigger that is already stored.
@@ -112,6 +116,10 @@ impl<A: AutoRoleRepository> UpdateAutoRoleUseCase<A> {
             .find_by_id(command.id)
             .await?
             .ok_or(AutoRoleError::NotFound(command.id))?;
+
+        if existing.guild_id != guild_id {
+            return Err(AutoRoleError::NotFound(command.id));
+        }
 
         let trigger = match &command.trigger {
             Some(raw) => parse_trigger(raw)?,

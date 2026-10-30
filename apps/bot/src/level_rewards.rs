@@ -59,6 +59,33 @@ pub async fn apply(outcome: &LevelUpOutcome, http: &serenity::Http) -> usize {
 
     let mut applied = 0;
 
+    for role_id in &outcome.roles_to_revoke {
+        let role = serenity::RoleId::new(*role_id);
+
+        if member.roles.contains(&role) {
+            match member.remove_role(http, role).await {
+                Ok(()) => {
+                    applied += 1;
+                    debug!(
+                        guild_id = outcome.profile.guild_id,
+                        user_id = outcome.profile.discord_user_id,
+                        role_id = *role_id,
+                        "removed a level reward role"
+                    );
+                }
+                Err(error) => {
+                    warn!(
+                        guild_id = outcome.profile.guild_id,
+                        user_id = outcome.profile.discord_user_id,
+                        role_id = *role_id,
+                        %error,
+                        "could not remove a level reward role"
+                    );
+                }
+            }
+        }
+    }
+
     for role_id in &outcome.roles_to_grant {
         let role = serenity::RoleId::new(*role_id);
 
@@ -89,35 +116,6 @@ pub async fn apply(outcome: &LevelUpOutcome, http: &serenity::Http) -> usize {
                     role_id = *role_id,
                     %error,
                     "could not grant a level reward role; it may sit above the bot's own role"
-                );
-            }
-        }
-    }
-
-    for role_id in &outcome.roles_to_revoke {
-        let role = serenity::RoleId::new(*role_id);
-
-        if !member.roles.contains(&role) {
-            continue;
-        }
-
-        match member.remove_role(http, role).await {
-            Ok(()) => {
-                applied += 1;
-                debug!(
-                    guild_id = outcome.profile.guild_id,
-                    user_id = outcome.profile.discord_user_id,
-                    role_id = *role_id,
-                    "removed a level reward role"
-                );
-            }
-            Err(error) => {
-                warn!(
-                    guild_id = outcome.profile.guild_id,
-                    user_id = outcome.profile.discord_user_id,
-                    role_id = *role_id,
-                    %error,
-                    "could not remove a level reward role"
                 );
             }
         }

@@ -72,13 +72,16 @@ pub async fn update(
 
     let use_case = UpdateAutoRoleUseCase::new(state.auto_roles.clone());
     let rule = use_case
-        .execute(UpdateAutoRoleCommand {
-            id: rule_id,
-            trigger: request.trigger,
-            delay_seconds: request.delay_seconds,
-            applies_to_bots: request.applies_to_bots,
-            is_active: request.is_active,
-        })
+        .execute(
+            guild_id,
+            UpdateAutoRoleCommand {
+                id: rule_id,
+                trigger: request.trigger,
+                delay_seconds: request.delay_seconds,
+                applies_to_bots: request.applies_to_bots,
+                is_active: request.is_active,
+            },
+        )
         .await?;
 
     Ok(Json(rule.into()))

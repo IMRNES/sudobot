@@ -5,7 +5,10 @@
 use chrono::{Duration, Utc};
 
 use super::join::{PlanJoinAutoRolesCommand, PlanJoinAutoRolesUseCase};
-use super::rules::{CreateAutoRoleCommand, CreateAutoRoleUseCase, DeleteAutoRoleUseCase};
+use super::rules::{
+    CreateAutoRoleCommand, CreateAutoRoleUseCase, DeleteAutoRoleUseCase, UpdateAutoRoleCommand,
+    UpdateAutoRoleUseCase,
+};
 use super::sweep::SweepPendingGrantsUseCase;
 use super::test_support::{FakeAutoRoles, FakeClock, grant, rule, seed_rules, store};
 use crate::domain::autorole::{AutoRoleError, AutoRoleTrigger};
@@ -281,6 +284,32 @@ async fn creating_a_rule_validates_the_trigger_and_the_delay() {
         .expect_err("a month-long delay is a different feature");
 
     assert!(matches!(error, AutoRoleError::InvalidDelay));
+}
+
+#[tokio::test]
+async fn updating_a_rule_from_another_guild_is_not_found() {
+    let store = store();
+    let mut existing = rule(AutoRoleTrigger::Join, 0, 42, false);
+    existing.guild_id = 2;
+    let rule_id = existing.id;
+    seed_rules(&store, vec![existing]);
+
+    let use_case = UpdateAutoRoleUseCase::new(FakeAutoRoles::new(store));
+    let error = use_case
+        .execute(
+            GUILD,
+            UpdateAutoRoleCommand {
+                id: rule_id,
+                trigger: Some("delay".to_string()),
+                delay_seconds: Some(60),
+                applies_to_bots: None,
+                is_active: None,
+            },
+        )
+        .await
+        .expect_err("a rule from another guild must be hidden");
+
+    assert!(matches!(error, AutoRoleError::NotFound(id) if id == rule_id));
 }
 
 #[tokio::test]

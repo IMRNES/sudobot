@@ -308,11 +308,23 @@ async fn award_voice_xp(listener: &Listener<'_>, guild_id: u64, user_id: u64, se
         listener.data.clock,
     );
 
+    let role_ids = match serenity::GuildId::new(guild_id)
+        .member(listener.ctx, serenity::UserId::new(user_id))
+        .await
+    {
+        Ok(member) => member.roles.iter().map(|role| role.get()).collect(),
+        Err(error) => {
+            debug!(%error, guild_id, user_id, "could not read member roles before voice xp");
+            Vec::new()
+        }
+    };
+
     let outcome = match use_case
         .execute(GrantVoiceXpCommand {
             guild_id,
             discord_user_id: user_id,
             seconds,
+            role_ids,
         })
         .await
     {
@@ -558,11 +570,7 @@ pub async fn handle_member_join(
     }
 
     // 4. The welcome message.
-    let guild = data.guilds.find_by_id(guild_id).await?;
-    let (guild_name, member_count) = match &guild {
-        Some(guild) => (guild.name.clone(), i64::from(guild.member_count)),
-        None => ("this server".to_string(), 0),
-    };
+    let (guild_name, member_count) = refresh_member_count(data, ctx, guild_id).await?;
 
     let build = BuildWelcomeMessageUseCase::new(data.welcome.clone());
     let message = build
@@ -766,11 +774,7 @@ pub async fn handle_member_leave(
         return Ok(());
     }
 
-    let guild = data.guilds.find_by_id(guild_id.get()).await?;
-    let (guild_name, member_count) = match &guild {
-        Some(guild) => (guild.name.clone(), i64::from(guild.member_count)),
-        None => ("this server".to_string(), 0),
-    };
+    let (guild_name, member_count) = refresh_member_count(data, ctx, guild_id.get()).await?;
 
     let build = BuildWelcomeMessageUseCase::new(data.welcome.clone());
     let message = build
@@ -792,6 +796,56 @@ pub async fn handle_member_leave(
     }
 
     Ok(())
+}
+
+/// Refreshes the cached guild count immediately before rendering a lifecycle
+/// message. Gateway guild payloads are snapshots and can remain stale, so using
+/// the database value here made every welcome repeat the count from the last
+/// startup or provisioning run.
+async fn refresh_member_count(
+    data: &Data,
+    ctx: &serenity::Context,
+    guild_id: u64,
+) -> Result<(String, i64), crate::Error> {
+    let fallback = data
+        .guilds
+        .find_by_id(guild_id)
+        .await?
+        .map(|guild| (guild.name, i64::from(guild.member_count)));
+
+    let guild = match serenity::GuildId::new(guild_id)
+        .to_partial_guild_with_counts(&ctx.http)
+        .await
+    {
+        Ok(guild) => guild,
+        Err(error) => {
+            debug!(%error, guild_id, "could not refresh guild member count");
+            return Ok(fallback.unwrap_or_else(|| ("this server".to_string(), 0)));
+        }
+    };
+
+    let member_count = guild
+        .approximate_member_count
+        .and_then(|count| i32::try_from(count).ok());
+
+    if let Some(member_count) = member_count {
+        data.guilds
+            .update(
+                guild_id,
+                GuildPatch {
+                    member_count: Some(member_count),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        return Ok((guild.name, i64::from(member_count)));
+    }
+
+    Ok((
+        guild.name,
+        fallback.map(|(_, count)| count).unwrap_or_default(),
+    ))
 }
 
 /// Handles a role-panel button press.

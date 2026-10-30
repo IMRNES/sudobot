@@ -233,6 +233,9 @@ pub struct GrantVoiceXpCommand {
     pub guild_id: u64,
     pub discord_user_id: u64,
     pub seconds: i64,
+    /// The member's current roles, used to revoke lower ladder rungs when
+    /// non-stacking mode is enabled.
+    pub role_ids: Vec<u64>,
 }
 
 pub struct GrantVoiceXpUseCase<L, C> {
@@ -322,10 +325,13 @@ impl<L: LevelingRepository, C: Clock> GrantVoiceXpUseCase<L, C> {
                 LevelingError::from(error)
             })?;
 
-        // `None` for the held roles: this command carries no role list, so every
-        // reached reward is reported and the caller skips the ones already held.
         let outcome = self
-            .build_outcome(profile.level, updated, None, config.stack_roles)
+            .build_outcome(
+                profile.level,
+                updated,
+                Some(&command.role_ids),
+                config.stack_roles,
+            )
             .await?;
 
         if outcome.leveled_up() {
@@ -836,6 +842,7 @@ mod tests {
                 guild_id: 7,
                 discord_user_id: 1,
                 seconds: 30,
+                role_ids: Vec::new(),
             })
             .await
             .expect("the fake never fails")
@@ -861,6 +868,7 @@ mod tests {
                     guild_id: 7,
                     discord_user_id: 1,
                     seconds,
+                    role_ids: Vec::new(),
                 })
                 .await
                 .expect("a zero duration is not an error");
@@ -884,6 +892,7 @@ mod tests {
                 guild_id: 7,
                 discord_user_id: 1,
                 seconds: 3_600,
+                role_ids: Vec::new(),
             })
             .await
             .expect("a switched-off reward is not an error");
