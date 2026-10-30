@@ -129,8 +129,48 @@ async fn the_goodbye_path_is_configured_independently_of_the_welcome() {
     assert_eq!(goodbye.channel_id, 99);
     assert_eq!(goodbye.content, "ada left Sudobot Test.");
     assert_eq!(goodbye.embed_color, Some(1));
+    assert_eq!(
+        goodbye
+            .embed
+            .as_ref()
+            .and_then(|embed| embed.image_url.as_deref()),
+        Some(super::message::DEFAULT_GOODBYE_IMAGE_URL)
+    );
     // A goodbye is never direct-messaged: the member has already left.
     assert!(!goodbye.send_dm);
+}
+
+#[tokio::test]
+async fn a_goodbye_without_branding_uses_the_ctf_default_copy_and_image() {
+    let store = store();
+    seed_config(
+        &store,
+        WelcomeConfig {
+            goodbye_enabled: true,
+            goodbye_channel_id: Some(99),
+            ..WelcomeConfig::default_for(GUILD)
+        },
+    );
+
+    let use_case = BuildWelcomeMessageUseCase::new(FakeWelcome::new(store));
+    let goodbye = use_case
+        .execute(query(WelcomeKind::Goodbye))
+        .await
+        .expect("the config is stored")
+        .expect("goodbye is enabled");
+
+    assert_eq!(
+        goodbye.content,
+        "The connection from ada to Sudobot Test has been closed. \
+         The next CTF challenge is waiting whenever you are ready to reconnect."
+    );
+    assert_eq!(
+        goodbye
+            .embed
+            .as_ref()
+            .and_then(|embed| embed.image_url.as_deref()),
+        Some(super::message::DEFAULT_GOODBYE_IMAGE_URL)
+    );
 }
 
 #[tokio::test]

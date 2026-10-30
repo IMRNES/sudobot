@@ -14,7 +14,7 @@ use iam::application::leveling::{
 };
 use iam::application::welcome::{
     BuildWelcomeMessageQuery, BuildWelcomeMessageUseCase, ResolvePanelButtonQuery,
-    ResolvePanelButtonUseCase, WelcomeKind,
+    ResolvePanelButtonUseCase, WelcomeKind, WelcomeMessage,
 };
 use iam::domain::guild::{GuildPatch, NewGuild};
 use iam::domain::leveling::plan_role_changes;
@@ -585,51 +585,7 @@ pub async fn handle_member_join(
         .await?;
 
     if let Some(message) = message {
-        let channel = serenity::ChannelId::new(message.channel_id);
-
-        // Built with serenity's own builder rather than poise's `CreateReply`:
-        // this path is outside a command, where `CreateReply` does not apply.
-        // Mirror the reference bot's shape: the greeting as message content, and the
-        // server's card as a rich embed underneath. The colour, when set, is the
-        // embed's colour bar; `None` leaves Discord's default.
-        let mut embed = serenity::CreateEmbed::new();
-        let mut has_embed = false;
-
-        if let Some(card) = &message.embed {
-            if let Some(author) = &card.author {
-                embed = embed.author(serenity::CreateEmbedAuthor::new(author));
-                has_embed = true;
-            }
-            if let Some(title) = &card.title {
-                embed = embed.title(title);
-                has_embed = true;
-            }
-            if let Some(description) = &card.description {
-                embed = embed.description(description);
-                has_embed = true;
-            }
-            if let Some(url) = &card.image_url {
-                embed = embed.image(url);
-                has_embed = true;
-            }
-            if let Some(url) = &card.thumbnail_url {
-                embed = embed.thumbnail(url);
-                has_embed = true;
-            }
-        }
-
-        if let Some(colour) = message.embed_color {
-            embed = embed.colour(colour as u32);
-        }
-
-        let mut builder = serenity::CreateMessage::new().content(&message.content);
-        if has_embed || message.embed_color.is_some() {
-            builder = builder.embed(embed);
-        }
-
-        if let Err(error) = channel.send_message(ctx, builder).await {
-            warn!(%error, guild_id, "could not post the welcome message");
-        }
+        send_lifecycle_message(ctx, guild_id, &message, "welcome").await;
     }
 
     Ok(())
@@ -789,13 +745,57 @@ pub async fn handle_member_leave(
         .await?;
 
     if let Some(message) = message {
-        let channel = serenity::ChannelId::new(message.channel_id);
-        if let Err(error) = channel.say(ctx, &message.content).await {
-            warn!(%error, guild_id = guild_id.get(), "could not post the goodbye message");
-        }
+        send_lifecycle_message(ctx, guild_id.get(), &message, "goodbye").await;
     }
 
     Ok(())
+}
+
+async fn send_lifecycle_message(
+    ctx: &serenity::Context,
+    guild_id: u64,
+    message: &WelcomeMessage,
+    kind: &str,
+) {
+    let channel = serenity::ChannelId::new(message.channel_id);
+    let mut embed = serenity::CreateEmbed::new();
+    let mut has_embed = false;
+
+    if let Some(card) = &message.embed {
+        if let Some(author) = &card.author {
+            embed = embed.author(serenity::CreateEmbedAuthor::new(author));
+            has_embed = true;
+        }
+        if let Some(title) = &card.title {
+            embed = embed.title(title);
+            has_embed = true;
+        }
+        if let Some(description) = &card.description {
+            embed = embed.description(description);
+            has_embed = true;
+        }
+        if let Some(url) = &card.image_url {
+            embed = embed.image(url);
+            has_embed = true;
+        }
+        if let Some(url) = &card.thumbnail_url {
+            embed = embed.thumbnail(url);
+            has_embed = true;
+        }
+    }
+
+    if let Some(colour) = message.embed_color {
+        embed = embed.colour(colour as u32);
+    }
+
+    let mut builder = serenity::CreateMessage::new().content(&message.content);
+    if has_embed || message.embed_color.is_some() {
+        builder = builder.embed(embed);
+    }
+
+    if let Err(error) = channel.send_message(ctx, builder).await {
+        warn!(%error, guild_id, kind, "could not post lifecycle message");
+    }
 }
 
 /// Refreshes the cached guild count immediately before rendering a lifecycle

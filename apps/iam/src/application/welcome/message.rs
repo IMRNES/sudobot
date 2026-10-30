@@ -2,6 +2,9 @@ use tracing::{debug, info};
 
 use crate::domain::welcome::{TemplateContext, WelcomeConfig, WelcomeError, WelcomeRepository};
 
+pub const DEFAULT_GOODBYE_IMAGE_URL: &str =
+    "https://i.pinimg.com/736x/35/c9/b2/35c9b2647fdb79b338007beac0f929a5.jpg";
+
 /// Which of the two member-lifecycle messages is being built.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WelcomeKind {
@@ -145,7 +148,10 @@ impl<W: WelcomeRepository> BuildWelcomeMessageUseCase<W> {
             title: config.embed_title.clone(),
             description: config.embed_description.clone(),
             author: config.embed_author.clone(),
-            image_url: config.embed_image_url.clone(),
+            image_url: config.embed_image_url.clone().or_else(|| {
+                (query.kind == WelcomeKind::Goodbye)
+                    .then_some(DEFAULT_GOODBYE_IMAGE_URL.to_string())
+            }),
             thumbnail_url: config.embed_thumbnail_url.clone(),
         };
         let embed = embed.is_visible().then_some(embed);
@@ -177,6 +183,9 @@ fn default_template(kind: WelcomeKind) -> &'static str {
         WelcomeKind::Welcome => "Welcome {mention} to {guild}! You are member #{memberCount}.",
         // A goodbye has nobody to greet, and `{mention}` would ping somebody who
         // has already gone.
-        WelcomeKind::Goodbye => "{user} has left {guild}.",
+        WelcomeKind::Goodbye => {
+            "The connection from {user} to {guild} has been closed. \
+             The next CTF challenge is waiting whenever you are ready to reconnect."
+        }
     }
 }
