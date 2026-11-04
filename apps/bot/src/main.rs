@@ -157,8 +157,10 @@ async fn main() -> Result<()> {
                             }
 
                             // A rung added after members passed it is never granted by
-                            // the level-change path, so every deploy reconciles. Level
-                            // 0 depends on this: nobody levels up *into* level 0.
+                            // the level-change path, so every deploy reconciles. The
+                            // first rung sits at level 1 rather than 0 for this
+                            // reason: nobody levels up *into* level 0, so a level-0
+                            // reward could only ever be applied from here.
                             match ladder_setup::sync_members(&data, guild_id, 5_000).await {
                                 Ok((examined, grants, revocations)) => tracing::info!(
                                     guild_id = guild_id.get(),

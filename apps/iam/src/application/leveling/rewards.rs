@@ -23,8 +23,10 @@ impl<L: LevelingRepository> ListLevelRewardsUseCase<L> {
 /// A new reward role.
 #[derive(Debug, Clone)]
 pub struct CreateLevelRewardCommand {
-    /// The level that earns the role; at least 1, because level 0 is where
-    /// everybody starts and a reward there would fire for the whole guild at once.
+    /// The level that earns the role; at least 0, because `validate_level` only
+    /// rejects negatives. The ladder's own first rung sits at level 1 rather than
+    /// 0: a member levels *out* of level 0, so a reward there is never reached by
+    /// the level-change path and could only be applied by reconciliation.
     pub guild_id: u64,
     pub level: i32,
     pub role_id: u64,
@@ -203,17 +205,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_reward_at_level_zero_is_allowed() {
-        // The ladder's first rung is level 0, which is where every member starts:
-        // Neophyte has to be expressible as a reward or a new arrival has no title.
+    async fn a_reward_at_level_one_is_the_lowest_the_ladder_uses() {
+        // The ladder's first rung is level 1: a member starts at level 0 and levels
+        // up into 1, so that is the earliest level a reward can actually fire at.
+        // `validate_level` would still accept 0; the ladder simply never asks for it.
         let leveling = FakeLevelingRepository::new();
 
         let reward = CreateLevelRewardUseCase::new(leveling.clone())
-            .execute(command(0))
+            .execute(command(1))
             .await
-            .expect("level 0 is Neophyte");
+            .expect("level 1 is Neophyte");
 
-        assert_eq!(reward.level, 0);
+        assert_eq!(reward.level, 1);
         assert_eq!(leveling.rewards(7).len(), 1);
     }
 

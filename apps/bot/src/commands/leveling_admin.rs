@@ -76,9 +76,10 @@ pub async fn ladder(ctx: Context<'_>) -> Result<(), Error> {
 /// Grant every member the ladder roles their current level already earned.
 ///
 /// The leveling engine grants roles when a member *levels up*, so a rung added
-/// after they passed it is never granted to them. This is the catch-up pass, and it
-/// is the only thing that ever hands out the level-0 rung: nobody levels up *into*
-/// level 0, so without a sync `Neophyte` would be a role no member ever wears.
+/// after they passed it is never granted to them. This is the catch-up pass. It
+/// also covers the member who has not spoken yet: the first rung sits at level 1,
+/// so an ordinary level-up reaches it, but a member with no stored profile is
+/// never examined by a sync either.
 #[poise::command(slash_command, guild_only, default_member_permissions = "MANAGE_ROLES")]
 pub async fn sync(
     ctx: Context<'_>,
