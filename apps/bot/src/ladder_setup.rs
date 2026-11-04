@@ -28,7 +28,7 @@ use poise::serenity_prelude as serenity;
 use tracing::{debug, info, warn};
 
 use iam::domain::leveling::{
-    LADDER, LevelReward, LevelingRepository, is_ladder_name, rung_for_level,
+    LADDER, LevelReward, LevelingRepository, is_ladder_name, rung_at, rung_for_level,
 };
 
 use crate::data::Data;
@@ -67,6 +67,12 @@ pub struct ProvisionReport {
     /// Counted rather than only logged: a ladder whose roles exist but whose rewards
     /// do not grants nothing, and the reply has to be able to say so.
     pub rewards_failed: usize,
+    /// Reward rows removed because their level no longer belongs to any rung.
+    ///
+    /// Separate from `rewards_failed`: a moved threshold leaves a row behind at the
+    /// old level, and that row still grants its role to everyone at that level.
+    /// Pruning it is a repair, not a failure.
+    pub rewards_pruned: usize,
     /// Which rung the bot's own role ended up below, if any.
     ///
     /// `None` means every rung is assignable. `Some(name)` names the highest rung
@@ -105,6 +111,9 @@ impl ProvisionReport {
         }
         if self.roles_repositioned > 0 {
             parts.push(format!("{} roles reordered", self.roles_repositioned));
+        }
+        if self.rewards_pruned > 0 {
+            parts.push(format!("{} stale rewards removed", self.rewards_pruned));
         }
         if self.rewards_failed > 0 {
             parts.push(format!("{} rewards FAILED", self.rewards_failed));
@@ -388,6 +397,16 @@ pub async fn provision(
         }
     }
 
+    // A reward row left over from a threshold the ladder no longer uses.
+    //
+    // This is the case the ladder moved to level 1 creates: the old ladder wired
+    // `Neophyte` at level 0, and moving the rung to 1 leaves that row behind at a
+    // level no rung occupies. It is not harmless — `plan_role_changes` reads the
+    // whole reward table, so the orphan still grants `Neophyte` to every member at
+    // level 0, which is everybody. Only rows for this guild's own rung roles are
+    // removed, so an admin's hand-made reward is left alone.
+    report.rewards_pruned = prune_stale_rewards(data, guild_id).await;
+
     // The bot's own role is raised FIRST, and the order matters. Discord refuses a
     // reorder that would place a role at or above the bot's highest role, and the
     // ladder's target positions sit just above the base member role — so on a fresh
@@ -401,6 +420,93 @@ pub async fn provision(
     report.roles_repositioned = position_ladder(data, guild_id, &ordered).await;
 
     Ok(report)
+}
+
+/// Removes reward rows whose level no rung occupies any more.
+///
+/// The ladder is data, and a threshold can move. When it does, the old row is not
+/// overwritten — it stays at the level it was written for, and because
+/// `plan_role_changes` reads the whole reward table, an orphan row still grants its
+/// role to every member who has reached that level. Moving `Neophyte` from level 0
+/// to 1 would otherwise leave a row at 0 that hands the title to the entire guild.
+///
+/// Only rows whose role is one of *our* rung roles are touched. A reward an admin
+/// wired to a role of their own at some other level is theirs, not a leftover, and
+/// deleting it would be the bot editing configuration it does not own.
+///
+/// Returns how many rows were removed. A failure to read or delete is logged and
+/// skipped: this is a repair pass, and it must not fail the provisioning run that
+/// called it.
+async fn prune_stale_rewards(data: &Data, guild_id: serenity::GuildId) -> usize {
+    let rewards = match data.leveling.list_rewards(guild_id.get()).await {
+        Ok(rewards) => rewards,
+        Err(error) => {
+            warn!(
+                guild_id = guild_id.get(),
+                %error,
+                "could not read reward rows to prune stale ones"
+            );
+            return 0;
+        }
+    };
+
+    let stale: Vec<&LevelReward> = rewards
+        .iter()
+        .filter(|reward| rung_at(reward.level).is_none())
+        .collect();
+
+    if stale.is_empty() {
+        return 0;
+    }
+
+    // One role read for the whole pass rather than one per row: the question is
+    // "is this id one of our rungs", and that answer is the same for every row.
+    let roles = match guild_id.roles(data.http()).await {
+        Ok(roles) => roles,
+        Err(error) => {
+            warn!(
+                guild_id = guild_id.get(),
+                %error,
+                "could not read guild roles to identify stale rewards"
+            );
+            return 0;
+        }
+    };
+
+    let mut pruned = 0;
+
+    for reward in stale {
+        // Only a row pointing at a rung role of ours is a leftover. A reward an
+        // admin wired to their own role at some other level is theirs, and deleting
+        // it would be the bot editing configuration it does not own.
+        let is_ours = roles
+            .get(&serenity::RoleId::new(reward.role_id))
+            .is_some_and(|role| is_ladder_name(&role.name));
+
+        if !is_ours {
+            continue;
+        }
+
+        match data.leveling.delete_reward(reward.id).await {
+            Ok(()) => {
+                pruned += 1;
+                debug!(
+                    guild_id = guild_id.get(),
+                    level = reward.level,
+                    role_id = reward.role_id,
+                    "removed a reward row for a level no rung uses"
+                );
+            }
+            Err(error) => warn!(
+                guild_id = guild_id.get(),
+                level = reward.level,
+                %error,
+                "could not remove a stale reward row"
+            ),
+        }
+    }
+
+    pruned
 }
 
 /// Gives each rung a distinct position, lowest level at the lowest position.
@@ -1036,6 +1142,7 @@ mod tests {
             rewards_created: 21,
             rewards_reused: 0,
             rewards_moved: 0,
+            rewards_pruned: 0,
             roles_repositioned: 0,
             rewards_failed: 0,
             highest_ungrantable: None,
@@ -1128,8 +1235,28 @@ mod tests {
     }
 
     #[test]
+    fn a_pruned_reward_is_reported_rather_than_hidden() {
+        // Moving a rung leaves its old reward row behind at the level it was
+        // written for. Removing it is a repair, so it is counted separately from
+        // a failure and must still be visible in the reply.
+        let report = ProvisionReport {
+            roles_reused: 21,
+            rewards_reused: 20,
+            rewards_pruned: 1,
+            ..ProvisionReport::default()
+        };
+
+        let summary = report.summary();
+        assert!(summary.contains("1 stale rewards removed"), "{summary}");
+        assert!(report.is_fully_functional());
+    }
+
+    #[test]
     fn titles_come_from_the_ladder() {
-        assert_eq!(title_for(0), "Neophyte");
+        // The first rung is level 1, so level 0 has no title at all: a member who
+        // has not earned anything yet is nameless rather than a placeholder.
+        assert_eq!(title_for(0), "—");
+        assert_eq!(title_for(1), "Neophyte");
         assert_eq!(title_for(7), "Neophyte");
         assert_eq!(title_for(10), "Apprentice");
         assert_eq!(title_for(10000), "IMMORTAL");

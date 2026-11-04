@@ -532,14 +532,15 @@ pub async fn handle_member_join(
     //
     //    A join is not only an occasion to *add*. A member who left and came back
     //    mid-climb can be wearing rungs their level no longer entitles them to, and
-    //    a member who never collected the level-0 badge has no title at all. Both
+    //    a member who never collected the level-1 badge has no title at all. Both
     //    halves are decided by `plan_role_changes`, the same pure function the
     //    level-up path uses, so the join path and the message path cannot disagree
     //    about who wears what.
     //
-    //    Nobody levels up *into* level 0, so the level-change path can never grant
-    //    it; the reconcile is what puts `Neophyte` on a new arrival. Without it the
-    //    ladder's first rung is dead weight until the next deploy or manual sync.
+    //    The ladder starts at level 1, so a member who has spoken once is granted
+    //    `Neophyte` by the ordinary level-up path. This reconcile still matters for
+    //    the member who has not spoken yet, and for the one whose rung was added
+    //    after they passed it.
     //
     //    Best effort, and silent when the guild has not provisioned the ladder: an
     //    unconfigured guild is normal, not an error.
