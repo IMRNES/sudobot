@@ -20,11 +20,13 @@
 //! measured in thousands of messages rather than hundreds and the top rung is
 //! something a member works toward for months rather than days.
 //!
-//! The first rung is level 0, which is where everybody starts. A level-0 reward
-//! therefore never fires from a level *change* — nobody levels up into it — and is
-//! granted by reconciliation instead: on join, and by the ladder provisioning and
-//! sync. That is deliberate, because the alternative is a role the entire guild
-//! earns at the moment it is configured.
+//! The first rung is level 1, which is the first level a member actually reaches.
+//! It is deliberately **not** level 0: nobody levels up *into* level 0, so a
+//! level-0 reward can only ever be applied by reconciliation — and reconciliation
+//! walks stored profiles, which a member does not have until they have already
+//! spoken. A level-0 title was therefore a role nobody could earn, which is why it
+//! moved. At level 1 the ordinary level-up path grants it, so the first rung is
+//! reachable by existing rather than by being reconciled.
 
 /// One title in the ladder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +101,7 @@ fn slug(name: &str) -> String {
 /// the second one at runtime anyway.
 pub const LADDER: [LadderRung; 21] = [
     LadderRung {
-        level: 0,
+        level: 1,
         name: "Neophyte",
         colour: 0x95A5A6,
     },
@@ -241,7 +243,7 @@ mod tests {
     /// The ladder as specified, so a rung edited by accident fails here rather
     /// than silently changing what the live guild's members are called.
     const EXPECTED: [(i32, &str); 21] = [
-        (0, "Neophyte"),
+        (1, "Neophyte"),
         (10, "Apprentice"),
         (35, "Pathfinder"),
         (75, "Seeker"),
@@ -297,7 +299,10 @@ mod tests {
 
     #[test]
     fn a_level_between_rungs_holds_the_last_one_passed() {
-        assert_eq!(rung_for_level(0).unwrap().name, "Neophyte");
+        // Level 0 has no rung: the ladder starts at 1, so a member who has not
+        // earned anything yet holds no title rather than a placeholder one.
+        assert!(rung_for_level(0).is_none());
+        assert_eq!(rung_for_level(1).unwrap().name, "Neophyte");
         assert_eq!(rung_for_level(2).unwrap().name, "Neophyte");
         assert_eq!(rung_for_level(9).unwrap().name, "Neophyte");
         assert_eq!(rung_for_level(10).unwrap().name, "Apprentice");
@@ -326,6 +331,9 @@ mod tests {
         assert_eq!(rung_at(10).unwrap().name, "Apprentice");
         // Level 11 is `Apprentice` by qualification but has no rung of its own.
         assert_eq!(rung_for_level(11).unwrap().name, "Apprentice");
+        // The ladder's first rung is level 1, so there is no rung at 0.
+        assert!(rung_at(0).is_none());
+        assert_eq!(rung_at(1).unwrap().name, "Neophyte");
     }
 
     #[test]
