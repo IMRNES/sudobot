@@ -145,6 +145,13 @@ impl<W: WelcomeRepository> BuildWelcomeMessageUseCase<W> {
         // in the bot means the dashboard preview and the posted message cannot
         // drift apart, and a guild with no card configured simply gets no embed.
         //
+        // Which card depends on the kind: a guild greets with its own banner and
+        // says goodbye with something else, and while these were one set of
+        // columns the greeting's picture silently replaced the farewell's. The
+        // goodbye's own columns are all `None` by default, and that is not "no
+        // card" — the farewell keeps its built-in image and posts no text of its
+        // own, which is what a guild that only branded its welcome wants.
+        //
         // Its text is a template like the content is: the dashboard's own copy
         // promises that placeholders work in the description, and a card saying
         // "welcome to {guild}" would otherwise post the brace to every member.
@@ -156,15 +163,32 @@ impl<W: WelcomeRepository> BuildWelcomeMessageUseCase<W> {
                 .map(|text| WelcomeConfig::render(text, &context))
         };
 
+        let (title, description, author, image_url, thumbnail_url) = match query.kind {
+            WelcomeKind::Welcome => (
+                &config.embed_title,
+                &config.embed_description,
+                &config.embed_author,
+                &config.embed_image_url,
+                &config.embed_thumbnail_url,
+            ),
+            WelcomeKind::Goodbye => (
+                &config.goodbye_embed_title,
+                &config.goodbye_embed_description,
+                &config.goodbye_embed_author,
+                &config.goodbye_embed_image_url,
+                &config.goodbye_embed_thumbnail_url,
+            ),
+        };
+
         let embed = WelcomeEmbed {
-            title: render(&config.embed_title),
-            description: render(&config.embed_description),
-            author: render(&config.embed_author),
-            image_url: config.embed_image_url.clone().or_else(|| {
+            title: render(title),
+            description: render(description),
+            author: render(author),
+            image_url: image_url.clone().or_else(|| {
                 (query.kind == WelcomeKind::Goodbye)
                     .then_some(DEFAULT_GOODBYE_IMAGE_URL.to_string())
             }),
-            thumbnail_url: config.embed_thumbnail_url.clone(),
+            thumbnail_url: thumbnail_url.clone(),
         };
         let embed = embed.is_visible().then_some(embed);
 

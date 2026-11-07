@@ -13,8 +13,14 @@ pub struct WelcomeConfig {
     pub welcome_embed_color: Option<i32>,
     pub welcome_dm_enabled: bool,
 
-    /// The embed card itself: shared by the welcome and the goodbye, because it is
-    /// the server's own branding rather than a property of either message.
+    /// The welcome's embed card: title, description, author, large image and
+    /// small thumbnail.
+    ///
+    /// Per-kind rather than shared. It started shared — the reasoning being that
+    /// the card is the server's branding, not a property of either message — but
+    /// the image is exactly the field a guild wants to differ: a greeting with its
+    /// own banner, a farewell with something else. With one column the greeting's
+    /// picture silently replaced the farewell's.
     pub embed_title: Option<String>,
     pub embed_description: Option<String>,
     pub embed_author: Option<String>,
@@ -25,6 +31,14 @@ pub struct WelcomeConfig {
     pub goodbye_channel_id: Option<u64>,
     pub goodbye_message: Option<String>,
     pub goodbye_embed_color: Option<i32>,
+    /// The farewell's own card. All `None` is the common case and is not "no
+    /// card": the goodbye then keeps the built-in farewell image and posts no
+    /// text of its own, which is what a guild that only branded its welcome wants.
+    pub goodbye_embed_title: Option<String>,
+    pub goodbye_embed_description: Option<String>,
+    pub goodbye_embed_author: Option<String>,
+    pub goodbye_embed_image_url: Option<String>,
+    pub goodbye_embed_thumbnail_url: Option<String>,
 
     pub updated_at: DateTime<Utc>,
 }
@@ -47,6 +61,11 @@ impl WelcomeConfig {
             goodbye_channel_id: None,
             goodbye_message: None,
             goodbye_embed_color: None,
+            goodbye_embed_title: None,
+            goodbye_embed_description: None,
+            goodbye_embed_author: None,
+            goodbye_embed_image_url: None,
+            goodbye_embed_thumbnail_url: None,
             updated_at: Utc::now(),
         }
     }

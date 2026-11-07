@@ -22,6 +22,11 @@ pub struct Model {
     pub goodbye_channel_id: Option<i64>,
     pub goodbye_message: Option<String>,
     pub goodbye_embed_color: Option<i32>,
+    pub goodbye_embed_title: Option<String>,
+    pub goodbye_embed_description: Option<String>,
+    pub goodbye_embed_author: Option<String>,
+    pub goodbye_embed_image_url: Option<String>,
+    pub goodbye_embed_thumbnail_url: Option<String>,
     pub updated_at: DateTimeWithTimeZone,
 }
 

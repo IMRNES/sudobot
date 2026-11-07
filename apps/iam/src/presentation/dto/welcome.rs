@@ -17,7 +17,7 @@ pub struct WelcomeConfigResponse {
     pub welcome_message: Option<String>,
     pub welcome_embed_color: Option<i32>,
     pub welcome_dm_enabled: bool,
-    /// The shared embed card, echoed so the dashboard can edit it.
+    /// The welcome's embed card, echoed so the dashboard can edit it.
     pub embed_title: Option<String>,
     pub embed_description: Option<String>,
     pub embed_author: Option<String>,
@@ -28,6 +28,13 @@ pub struct WelcomeConfigResponse {
     pub goodbye_channel_id: Option<u64>,
     pub goodbye_message: Option<String>,
     pub goodbye_embed_color: Option<i32>,
+    /// The farewell's own card. `null` throughout is normal: the goodbye then
+    /// keeps its built-in image and carries no text of its own.
+    pub goodbye_embed_title: Option<String>,
+    pub goodbye_embed_description: Option<String>,
+    pub goodbye_embed_author: Option<String>,
+    pub goodbye_embed_image_url: Option<String>,
+    pub goodbye_embed_thumbnail_url: Option<String>,
     /// Echoed so the dashboard's template editor can show the hint without
     /// hard-coding a list that must then be kept in step with the server.
     pub allowed_placeholders: Vec<String>,
@@ -50,6 +57,11 @@ impl From<WelcomeConfig> for WelcomeConfigResponse {
             goodbye_channel_id: config.goodbye_channel_id,
             goodbye_message: config.goodbye_message,
             goodbye_embed_color: config.goodbye_embed_color,
+            goodbye_embed_title: config.goodbye_embed_title,
+            goodbye_embed_description: config.goodbye_embed_description,
+            goodbye_embed_author: config.goodbye_embed_author,
+            goodbye_embed_image_url: config.goodbye_embed_image_url,
+            goodbye_embed_thumbnail_url: config.goodbye_embed_thumbnail_url,
             allowed_placeholders: ALLOWED_PLACEHOLDERS
                 .iter()
                 .map(|placeholder| placeholder.to_string())
@@ -91,6 +103,16 @@ pub struct UpdateWelcomeConfigRequest {
     pub goodbye_message: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub goodbye_embed_color: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub goodbye_embed_title: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub goodbye_embed_description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub goodbye_embed_author: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub goodbye_embed_image_url: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub goodbye_embed_thumbnail_url: Option<Option<String>>,
 }
 
 fn double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>

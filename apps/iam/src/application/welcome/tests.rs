@@ -140,19 +140,86 @@ async fn the_goodbye_path_is_configured_independently_of_the_welcome() {
     assert!(!goodbye.send_dm);
 }
 
-/// The card is shared, so it is rendered for the goodbye too — the same
-/// substitution, with the leaver's own name in it.
+/// Each kind owns its card, so a guild can greet with one image and say goodbye
+/// with another. This is the regression that mattered: while the card was one
+/// set of columns, setting the welcome's picture silently replaced the
+/// farewell's, and there was no way to have both.
 #[tokio::test]
-async fn the_card_is_rendered_for_the_goodbye_as_well() {
+async fn each_kind_carries_its_own_card() {
     let store = store();
     seed_config(
         &store,
         WelcomeConfig {
+            welcome_enabled: true,
+            welcome_channel_id: Some(99),
             goodbye_enabled: true,
             goodbye_channel_id: Some(99),
             goodbye_message: Some("Goodbye {user}.".to_string()),
-            embed_title: Some("Until next time, {user}".to_string()),
-            embed_description: Some("{user} was one of {memberCount} in {guild}.".to_string()),
+            embed_title: Some("Welcome to {guild}".to_string()),
+            embed_image_url: Some("https://example.test/welcome.png".to_string()),
+            goodbye_embed_title: Some("Until next time, {user}".to_string()),
+            goodbye_embed_description: Some(
+                "{user} was one of {memberCount} in {guild}.".to_string(),
+            ),
+            goodbye_embed_image_url: Some("https://example.test/goodbye.png".to_string()),
+            ..WelcomeConfig::default_for(GUILD)
+        },
+    );
+
+    let welcome = BuildWelcomeMessageUseCase::new(FakeWelcome::new(store.clone()))
+        .execute(query(WelcomeKind::Welcome))
+        .await
+        .expect("the config is stored")
+        .expect("welcome is enabled");
+    let goodbye = BuildWelcomeMessageUseCase::new(FakeWelcome::new(store))
+        .execute(query(WelcomeKind::Goodbye))
+        .await
+        .expect("the config is stored")
+        .expect("goodbye is enabled");
+
+    let welcome_card = welcome.embed.expect("the welcome has its own card");
+    assert_eq!(
+        welcome_card.image_url.as_deref(),
+        Some("https://example.test/welcome.png")
+    );
+    assert_eq!(
+        welcome_card.title.as_deref(),
+        Some("Welcome to Sudobot Test")
+    );
+
+    // The farewell's card, not the welcome's — including the image, which is the
+    // whole point of splitting them.
+    let goodbye_card = goodbye.embed.expect("the goodbye has its own card");
+    assert_eq!(goodbye.content, "Goodbye ada.");
+    assert_eq!(goodbye_card.title.as_deref(), Some("Until next time, ada"));
+    assert_eq!(
+        goodbye_card.description.as_deref(),
+        Some("ada was one of 42 in Sudobot Test.")
+    );
+    assert_eq!(
+        goodbye_card.image_url.as_deref(),
+        Some("https://example.test/goodbye.png")
+    );
+}
+
+/// A guild that branded only its welcome still gets a farewell: the built-in
+/// image, and none of the welcome's text. This is the state the operator asked
+/// for — an IMRNES card on the join, the plain farewell image on the leave.
+#[tokio::test]
+async fn an_unbranded_goodbye_ignores_the_welcome_card() {
+    let store = store();
+    seed_config(
+        &store,
+        WelcomeConfig {
+            welcome_enabled: true,
+            welcome_channel_id: Some(99),
+            goodbye_enabled: true,
+            goodbye_channel_id: Some(99),
+            embed_title: Some("IMRNES Community".to_string()),
+            embed_description: Some("A place for {guild}".to_string()),
+            embed_author: Some("imrnes.team".to_string()),
+            embed_image_url: Some("https://example.test/welcome.png".to_string()),
+            embed_thumbnail_url: Some("https://example.test/logo.png".to_string()),
             ..WelcomeConfig::default_for(GUILD)
         },
     );
@@ -163,15 +230,17 @@ async fn the_card_is_rendered_for_the_goodbye_as_well() {
         .expect("the config is stored")
         .expect("goodbye is enabled");
 
-    assert_eq!(goodbye.content, "Goodbye ada.");
     let card = goodbye
         .embed
-        .expect("the default image makes the card visible");
-    assert_eq!(card.title.as_deref(), Some("Until next time, ada"));
+        .expect("the built-in image still makes the card visible");
     assert_eq!(
-        card.description.as_deref(),
-        Some("ada was one of 42 in Sudobot Test.")
+        card.image_url.as_deref(),
+        Some(super::message::DEFAULT_GOODBYE_IMAGE_URL)
     );
+    assert_eq!(card.title, None);
+    assert_eq!(card.description, None);
+    assert_eq!(card.author, None);
+    assert_eq!(card.thumbnail_url, None);
 }
 
 #[tokio::test]
@@ -262,6 +331,11 @@ async fn a_bare_patch_field_leaves_the_stored_value_alone() {
             goodbye_channel_id: None,
             goodbye_message: None,
             goodbye_embed_color: None,
+            goodbye_embed_title: None,
+            goodbye_embed_description: None,
+            goodbye_embed_author: None,
+            goodbye_embed_image_url: None,
+            goodbye_embed_thumbnail_url: None,
         })
         .await
         .expect("the patch only touches one field");
@@ -298,6 +372,11 @@ async fn a_double_none_clears_the_field() {
             goodbye_channel_id: None,
             goodbye_message: None,
             goodbye_embed_color: None,
+            goodbye_embed_title: None,
+            goodbye_embed_description: None,
+            goodbye_embed_author: None,
+            goodbye_embed_image_url: None,
+            goodbye_embed_thumbnail_url: None,
         })
         .await
         .expect("clearing a channel is a valid patch");
@@ -333,6 +412,11 @@ async fn a_template_with_a_typo_is_refused_at_save_time() {
             goodbye_channel_id: None,
             goodbye_message: None,
             goodbye_embed_color: None,
+            goodbye_embed_title: None,
+            goodbye_embed_description: None,
+            goodbye_embed_author: None,
+            goodbye_embed_image_url: None,
+            goodbye_embed_thumbnail_url: None,
         })
         .await
         .expect_err("a placeholder the renderer does not know would post literally");
@@ -369,6 +453,11 @@ async fn a_null_clears_a_message() {
             goodbye_channel_id: None,
             goodbye_message: Some(None),
             goodbye_embed_color: None,
+            goodbye_embed_title: None,
+            goodbye_embed_description: None,
+            goodbye_embed_author: None,
+            goodbye_embed_image_url: None,
+            goodbye_embed_thumbnail_url: None,
         })
         .await
         .expect("clearing a message is a valid patch");
@@ -401,6 +490,11 @@ async fn an_absent_message_survives_a_patch() {
             goodbye_channel_id: None,
             goodbye_message: None,
             goodbye_embed_color: None,
+            goodbye_embed_title: None,
+            goodbye_embed_description: None,
+            goodbye_embed_author: None,
+            goodbye_embed_image_url: None,
+            goodbye_embed_thumbnail_url: None,
         })
         .await
         .expect("the patch applies");
@@ -780,6 +874,56 @@ async fn the_embed_card_travels_with_the_message() {
     );
 }
 
+/// The farewell's card is patched through its own fields, so saving a goodbye
+/// image cannot overwrite the welcome's — the API-level half of the same rule.
+#[tokio::test]
+async fn a_goodbye_card_patch_leaves_the_welcome_card_alone() {
+    let store = store();
+    seed_config(
+        &store,
+        WelcomeConfig {
+            embed_image_url: Some("https://example.test/welcome.png".to_string()),
+            ..WelcomeConfig::default_for(GUILD)
+        },
+    );
+
+    let stored = UpdateWelcomeConfigUseCase::new(FakeWelcome::new(store))
+        .execute(UpdateWelcomeConfigCommand {
+            guild_id: GUILD,
+            welcome_enabled: None,
+            welcome_channel_id: None,
+            welcome_message: None,
+            welcome_embed_color: None,
+            welcome_dm_enabled: None,
+            embed_title: None,
+            embed_description: None,
+            embed_author: None,
+            embed_image_url: None,
+            embed_thumbnail_url: None,
+            goodbye_enabled: None,
+            goodbye_channel_id: None,
+            goodbye_message: None,
+            goodbye_embed_color: None,
+            goodbye_embed_title: None,
+            goodbye_embed_description: None,
+            goodbye_embed_author: None,
+            goodbye_embed_image_url: Some(Some("https://example.test/goodbye.png".to_string())),
+            goodbye_embed_thumbnail_url: None,
+        })
+        .await
+        .expect("the patch applies");
+
+    assert_eq!(
+        stored.goodbye_embed_image_url.as_deref(),
+        Some("https://example.test/goodbye.png")
+    );
+    assert_eq!(
+        stored.embed_image_url.as_deref(),
+        Some("https://example.test/welcome.png"),
+        "the welcome's picture must survive a goodbye edit"
+    );
+}
+
 /// A guild that never configured a card gets no embed at all: Discord rejects an
 /// embed with no visible content, and a grey empty box is worse than a plain post.
 #[tokio::test]
@@ -833,6 +977,11 @@ async fn the_card_is_stored_when_the_row_already_exists() {
             goodbye_channel_id: None,
             goodbye_message: None,
             goodbye_embed_color: None,
+            goodbye_embed_title: None,
+            goodbye_embed_description: None,
+            goodbye_embed_author: None,
+            goodbye_embed_image_url: None,
+            goodbye_embed_thumbnail_url: None,
         })
         .await
         .expect("the patch applies");
@@ -879,6 +1028,11 @@ async fn a_null_clears_a_card_field() {
             goodbye_channel_id: None,
             goodbye_message: None,
             goodbye_embed_color: None,
+            goodbye_embed_title: None,
+            goodbye_embed_description: None,
+            goodbye_embed_author: None,
+            goodbye_embed_image_url: None,
+            goodbye_embed_thumbnail_url: None,
         })
         .await
         .expect("the patch applies");

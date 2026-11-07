@@ -139,7 +139,9 @@ function WelcomeForm({
 				welcome_message: value.welcome_message.trim() || null,
 				welcome_embed_color: hexColorToNumber(value.welcome_embed_color),
 				welcome_dm_enabled: value.welcome_dm_enabled,
-				// The card is shared, and an empty field means "clear this part".
+				// The welcome's card. An empty field means "clear this part", and the
+				// goodbye's own card is left untouched because absent fields are not
+				// part of the patch.
 				embed_title: value.embed_title.trim() || null,
 				embed_description: value.embed_description.trim() || null,
 				embed_author: value.embed_author.trim() || null,
@@ -278,14 +280,15 @@ function WelcomeForm({
 				}
 			</form.Subscribe>
 
-			{/* ------------------------------------------------ the embed card */}
+			{/* -------------------------------------------- the welcome's card */}
 
 			<div className="flex flex-col gap-4 border-t border-border pt-6">
 				<div>
-					<h3 className="text-sm font-medium">Server card</h3>
+					<h3 className="text-sm font-medium">Welcome card</h3>
 					<p className="text-xs text-muted-foreground">
-						The embed that appears under every welcome and goodbye. Shared by both, so the server's
-						branding is written once.
+						The embed that appears under a welcome. The goodbye has its own card, so the two
+						messages can carry different images — a greeting with the server&apos;s banner, a
+						farewell with something else.
 					</p>
 				</div>
 

@@ -86,6 +86,17 @@ impl WelcomeRepository for SeaOrmWelcomeRepository {
             goodbye_channel_id: sea_orm::ActiveValue::Set(config.goodbye_channel_id.map(snowflake)),
             goodbye_message: sea_orm::ActiveValue::Set(config.goodbye_message),
             goodbye_embed_color: sea_orm::ActiveValue::Set(config.goodbye_embed_color),
+            goodbye_embed_title: sea_orm::ActiveValue::Set(config.goodbye_embed_title.clone()),
+            goodbye_embed_description: sea_orm::ActiveValue::Set(
+                config.goodbye_embed_description.clone(),
+            ),
+            goodbye_embed_author: sea_orm::ActiveValue::Set(config.goodbye_embed_author.clone()),
+            goodbye_embed_image_url: sea_orm::ActiveValue::Set(
+                config.goodbye_embed_image_url.clone(),
+            ),
+            goodbye_embed_thumbnail_url: sea_orm::ActiveValue::Set(
+                config.goodbye_embed_thumbnail_url.clone(),
+            ),
             updated_at: sea_orm::ActiveValue::Set(from_utc(Utc::now())),
         };
 
@@ -111,6 +122,11 @@ impl WelcomeRepository for SeaOrmWelcomeRepository {
                         welcome_configs::Column::GoodbyeChannelId,
                         welcome_configs::Column::GoodbyeMessage,
                         welcome_configs::Column::GoodbyeEmbedColor,
+                        welcome_configs::Column::GoodbyeEmbedTitle,
+                        welcome_configs::Column::GoodbyeEmbedDescription,
+                        welcome_configs::Column::GoodbyeEmbedAuthor,
+                        welcome_configs::Column::GoodbyeEmbedImageUrl,
+                        welcome_configs::Column::GoodbyeEmbedThumbnailUrl,
                         welcome_configs::Column::UpdatedAt,
                     ])
                     .to_owned(),
@@ -360,6 +376,11 @@ impl From<welcome_configs::Model> for WelcomeConfig {
             goodbye_channel_id: model.goodbye_channel_id.map(snowflake_from_db),
             goodbye_message: model.goodbye_message,
             goodbye_embed_color: model.goodbye_embed_color,
+            goodbye_embed_title: model.goodbye_embed_title,
+            goodbye_embed_description: model.goodbye_embed_description,
+            goodbye_embed_author: model.goodbye_embed_author,
+            goodbye_embed_image_url: model.goodbye_embed_image_url,
+            goodbye_embed_thumbnail_url: model.goodbye_embed_thumbnail_url,
             updated_at: to_utc(model.updated_at),
         }
     }
