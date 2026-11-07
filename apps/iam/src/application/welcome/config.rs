@@ -43,7 +43,7 @@ pub struct UpdateWelcomeConfigCommand {
     /// `Some(Some(template))` replaces it, `Some(None)` clears it, `None` leaves it.
     pub welcome_message: Option<Option<String>>,
     pub welcome_embed_color: Option<Option<i32>>,
-    /// The shared embed card. `Some(None)` clears a field, `None` leaves it alone.
+    /// The welcome's card. `Some(None)` clears a field, `None` leaves it alone.
     pub embed_title: Option<Option<String>>,
     pub embed_description: Option<Option<String>>,
     pub embed_author: Option<Option<String>>,
@@ -55,6 +55,12 @@ pub struct UpdateWelcomeConfigCommand {
     /// `Some(Some(template))` replaces it, `Some(None)` clears it, `None` leaves it.
     pub goodbye_message: Option<Option<String>>,
     pub goodbye_embed_color: Option<Option<i32>>,
+    /// The farewell's own card, patched exactly like the welcome's.
+    pub goodbye_embed_title: Option<Option<String>>,
+    pub goodbye_embed_description: Option<Option<String>>,
+    pub goodbye_embed_author: Option<Option<String>>,
+    pub goodbye_embed_image_url: Option<Option<String>>,
+    pub goodbye_embed_thumbnail_url: Option<Option<String>>,
 }
 
 pub struct UpdateWelcomeConfigUseCase<W> {
@@ -94,8 +100,7 @@ impl<W: WelcomeRepository> UpdateWelcomeConfigUseCase<W> {
             config.welcome_embed_color = colour;
         }
 
-        // The card is shared, so it is applied the same way whichever message kind
-        // the caller was editing.
+        // Each kind owns its card, so each is applied to its own fields.
         if let Some(title) = command.embed_title {
             config.embed_title = title;
         }
@@ -113,6 +118,21 @@ impl<W: WelcomeRepository> UpdateWelcomeConfigUseCase<W> {
         }
         if let Some(colour) = command.goodbye_embed_color {
             config.goodbye_embed_color = colour;
+        }
+        if let Some(title) = command.goodbye_embed_title {
+            config.goodbye_embed_title = title;
+        }
+        if let Some(description) = command.goodbye_embed_description {
+            config.goodbye_embed_description = description;
+        }
+        if let Some(author) = command.goodbye_embed_author {
+            config.goodbye_embed_author = author;
+        }
+        if let Some(image) = command.goodbye_embed_image_url {
+            config.goodbye_embed_image_url = image;
+        }
+        if let Some(thumbnail) = command.goodbye_embed_thumbnail_url {
+            config.goodbye_embed_thumbnail_url = thumbnail;
         }
 
         // A message being set is validated; one being cleared is not a template at

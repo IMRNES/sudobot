@@ -293,14 +293,29 @@ hiding.
   "goodbye_channel_id": null,
   "goodbye_message": null,
   "goodbye_embed_color": null,
+  "goodbye_embed_title": null,
+  "goodbye_embed_description": null,
+  "goodbye_embed_author": null,
+  "goodbye_embed_image_url": null,
+  "goodbye_embed_thumbnail_url": null,
   "allowed_placeholders": ["{user}", "{mention}", "{guild}", "{memberCount}"]
 }
 ```
 
-`embed_*` is the server card, shared by the welcome and the goodbye: one card,
-attached to both messages. Its `title`, `description` and `author` are templates
-like `welcome_message` is, so placeholders work there too; the two URLs are sent
-as written. A guild with no card posts no embed — a colour alone is not an embed.
+`embed_*` is the **welcome's** card and `goodbye_embed_*` is the **goodbye's**, so
+the two messages can carry different images — a greeting with the server's banner,
+a farewell with something else. They were one shared card until the images had to
+differ; a single `embed_image_url` meant setting the welcome's picture silently
+replaced the goodbye's.
+
+Both cards' `title`, `description` and `author` are templates like
+`welcome_message` is, so placeholders work there too; the URLs are sent as
+written. A card with nothing in it posts no embed — a colour alone is not an embed.
+
+A goodbye with no `goodbye_embed_*` set is **not** an unbranded goodbye: it keeps
+the built-in farewell image and posts no title, description, author or thumbnail.
+That is the state a guild that branded only its welcome wants, and it stays
+reachable now that the welcome's card no longer reaches the farewell.
 
 Every field of `PATCH` is optional in both directions: absent leaves the stored
 value alone, `null` clears it. Clearing `welcome_message` is how a guild goes back

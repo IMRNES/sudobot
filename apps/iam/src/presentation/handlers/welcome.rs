@@ -104,6 +104,11 @@ pub fn to_update_command(
         goodbye_channel_id: channel(request.goodbye_channel_id, "goodbye_channel_id")?,
         goodbye_message: request.goodbye_message,
         goodbye_embed_color: colour(request.goodbye_embed_color, "goodbye_embed_color")?,
+        goodbye_embed_title: request.goodbye_embed_title,
+        goodbye_embed_description: request.goodbye_embed_description,
+        goodbye_embed_author: request.goodbye_embed_author,
+        goodbye_embed_image_url: request.goodbye_embed_image_url,
+        goodbye_embed_thumbnail_url: request.goodbye_embed_thumbnail_url,
     })
 }
 
