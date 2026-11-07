@@ -586,9 +586,43 @@ pub async fn handle_member_join(
 
     if let Some(message) = message {
         send_lifecycle_message(ctx, guild_id, &message, "welcome").await;
+
+        // The direct message is a second delivery of the same text, not a
+        // replacement: the channel post has already happened, and a member who has
+        // DMs closed must not lose the greeting over it.
+        if message.send_dm {
+            send_welcome_dm(ctx, &member.user, &message).await;
+        }
     }
 
     Ok(())
+}
+
+/// Sends the greeting to the member privately, when the guild asked for it.
+///
+/// Best effort and deliberately quiet: closed direct messages are the ordinary
+/// case rather than a failure, and by the time this runs the channel post has
+/// landed, so there is nothing to roll back and nothing to report to an admin.
+async fn send_welcome_dm(ctx: &serenity::Context, user: &serenity::User, message: &WelcomeMessage) {
+    let dm = match user.create_dm_channel(&ctx.http).await {
+        Ok(dm) => dm,
+        Err(error) => {
+            debug!(
+                %error,
+                user_id = user.id.get(),
+                "could not open a direct message channel for a welcome"
+            );
+            return;
+        }
+    };
+
+    if let Err(error) = dm.say(&ctx.http, &message.content).await {
+        debug!(
+            %error,
+            user_id = user.id.get(),
+            "could not send the welcome direct message"
+        );
+    }
 }
 
 /// Reconciles a joining member's ladder roles against their stored level.
@@ -788,8 +822,12 @@ async fn send_lifecycle_message(
         embed = embed.colour(colour as u32);
     }
 
+    // Only attach an embed that has something in it. A colour alone is not worth
+    // one: Discord draws it as an empty grey box under every message, which is
+    // worse than the plain post the guild would otherwise get, and the colour is
+    // the card's accent rather than a message in its own right.
     let mut builder = serenity::CreateMessage::new().content(&message.content);
-    if has_embed || message.embed_color.is_some() {
+    if has_embed {
         builder = builder.embed(embed);
     }
 

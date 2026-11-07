@@ -266,6 +266,7 @@ hiding.
 |---|---|---|
 | GET | `/guilds/{guildId}/welcome` | `welcome:read` |
 | PATCH | `/guilds/{guildId}/welcome` | `welcome:write` |
+| GET | `/guilds/{guildId}/welcome/preview` | `welcome:read` |
 | GET | `/guilds/{guildId}/panels` | `autorole:read` |
 | POST | `/guilds/{guildId}/panels` | `autorole:write` |
 | GET | `/guilds/{guildId}/panels/{panelId}` | `autorole:read` |
@@ -283,12 +284,27 @@ hiding.
   "welcome_message": "Welcome {mention} to {guild}!",
   "welcome_embed_color": 5793266,
   "welcome_dm_enabled": false,
+  "embed_title": "IMRNES Community",
+  "embed_description": "A place for {guild}",
+  "embed_author": "imrnes.team",
+  "embed_image_url": "https://example.test/card.jpg",
+  "embed_thumbnail_url": null,
   "goodbye_enabled": false,
   "goodbye_channel_id": null,
   "goodbye_message": null,
-  "goodbye_embed_color": null
+  "goodbye_embed_color": null,
+  "allowed_placeholders": ["{user}", "{mention}", "{guild}", "{memberCount}"]
 }
 ```
+
+`embed_*` is the server card, shared by the welcome and the goodbye: one card,
+attached to both messages. Its `title`, `description` and `author` are templates
+like `welcome_message` is, so placeholders work there too; the two URLs are sent
+as written. A guild with no card posts no embed — a colour alone is not an embed.
+
+Every field of `PATCH` is optional in both directions: absent leaves the stored
+value alone, `null` clears it. Clearing `welcome_message` is how a guild goes back
+to the default copy; there is no way to send *no* text while the feature is on.
 
 Placeholders allowed in a message: `{user}`, `{mention}`, `{guild}`,
 `{memberCount}`. Anything else is a `400`.

@@ -59,7 +59,8 @@ impl From<WelcomeConfig> for WelcomeConfigResponse {
 }
 
 /// A partial update. Every field is doubly optional: absent leaves the value alone,
-/// `null` clears it. A channel cannot be "set to nothing" any other way.
+/// `null` clears it. A channel or a message cannot be "set to nothing" any other
+/// way.
 ///
 /// Hand-validated: `zod-rs`'s derive unwraps one `Option` and then requires a
 /// `schema()` on the inner type, so `Option<Option<T>>` cannot be derived.
@@ -68,7 +69,8 @@ pub struct UpdateWelcomeConfigRequest {
     pub welcome_enabled: Option<bool>,
     #[serde(default, deserialize_with = "double_option")]
     pub welcome_channel_id: Option<Option<String>>,
-    pub welcome_message: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub welcome_message: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub welcome_embed_color: Option<Option<i32>>,
     pub welcome_dm_enabled: Option<bool>,
@@ -85,7 +87,8 @@ pub struct UpdateWelcomeConfigRequest {
     pub goodbye_enabled: Option<bool>,
     #[serde(default, deserialize_with = "double_option")]
     pub goodbye_channel_id: Option<Option<String>>,
-    pub goodbye_message: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub goodbye_message: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub goodbye_embed_color: Option<Option<i32>>,
 }

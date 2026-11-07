@@ -144,10 +144,22 @@ impl<W: WelcomeRepository> BuildWelcomeMessageUseCase<W> {
         // The card is built from the stored branding. Building it here rather than
         // in the bot means the dashboard preview and the posted message cannot
         // drift apart, and a guild with no card configured simply gets no embed.
+        //
+        // Its text is a template like the content is: the dashboard's own copy
+        // promises that placeholders work in the description, and a card saying
+        // "welcome to {guild}" would otherwise post the brace to every member.
+        //
+        // The two URLs are left exactly as written. A URL is not copy, and the
+        // only thing substituting into one could do is break it.
+        let render = |text: &Option<String>| {
+            text.as_deref()
+                .map(|text| WelcomeConfig::render(text, &context))
+        };
+
         let embed = WelcomeEmbed {
-            title: config.embed_title.clone(),
-            description: config.embed_description.clone(),
-            author: config.embed_author.clone(),
+            title: render(&config.embed_title),
+            description: render(&config.embed_description),
+            author: render(&config.embed_author),
             image_url: config.embed_image_url.clone().or_else(|| {
                 (query.kind == WelcomeKind::Goodbye)
                     .then_some(DEFAULT_GOODBYE_IMAGE_URL.to_string())

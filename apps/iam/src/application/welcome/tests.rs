@@ -140,6 +140,40 @@ async fn the_goodbye_path_is_configured_independently_of_the_welcome() {
     assert!(!goodbye.send_dm);
 }
 
+/// The card is shared, so it is rendered for the goodbye too — the same
+/// substitution, with the leaver's own name in it.
+#[tokio::test]
+async fn the_card_is_rendered_for_the_goodbye_as_well() {
+    let store = store();
+    seed_config(
+        &store,
+        WelcomeConfig {
+            goodbye_enabled: true,
+            goodbye_channel_id: Some(99),
+            goodbye_message: Some("Goodbye {user}.".to_string()),
+            embed_title: Some("Until next time, {user}".to_string()),
+            embed_description: Some("{user} was one of {memberCount} in {guild}.".to_string()),
+            ..WelcomeConfig::default_for(GUILD)
+        },
+    );
+
+    let goodbye = BuildWelcomeMessageUseCase::new(FakeWelcome::new(store))
+        .execute(query(WelcomeKind::Goodbye))
+        .await
+        .expect("the config is stored")
+        .expect("goodbye is enabled");
+
+    assert_eq!(goodbye.content, "Goodbye ada.");
+    let card = goodbye
+        .embed
+        .expect("the default image makes the card visible");
+    assert_eq!(card.title.as_deref(), Some("Until next time, ada"));
+    assert_eq!(
+        card.description.as_deref(),
+        Some("ada was one of 42 in Sudobot Test.")
+    );
+}
+
 #[tokio::test]
 async fn a_goodbye_without_branding_uses_the_default_copy_and_image() {
     let store = store();
@@ -287,7 +321,7 @@ async fn a_template_with_a_typo_is_refused_at_save_time() {
             guild_id: GUILD,
             welcome_enabled: None,
             welcome_channel_id: None,
-            welcome_message: Some("welcome {membercount}!".to_string()),
+            welcome_message: Some(Some("welcome {membercount}!".to_string())),
             welcome_embed_color: None,
             welcome_dm_enabled: None,
             embed_title: None,
@@ -304,6 +338,77 @@ async fn a_template_with_a_typo_is_refused_at_save_time() {
         .expect_err("a placeholder the renderer does not know would post literally");
 
     assert!(matches!(error, WelcomeError::UnknownPlaceholder(_)));
+}
+
+/// A `null` message clears it. Without this the dashboard's "empty the box and
+/// save" is a no-op that silently keeps the old template — and with no way to say
+/// "remove this", the only escape from a bad goodbye was to write a new one.
+#[tokio::test]
+async fn a_null_clears_a_message() {
+    let store = store();
+    let mut config = enabled_config();
+    config.goodbye_enabled = true;
+    config.goodbye_channel_id = Some(99);
+    config.goodbye_message = Some("{user} left {guild}.".to_string());
+    seed_config(&store, config);
+
+    let stored = UpdateWelcomeConfigUseCase::new(FakeWelcome::new(store))
+        .execute(UpdateWelcomeConfigCommand {
+            guild_id: GUILD,
+            welcome_enabled: None,
+            welcome_channel_id: None,
+            welcome_message: Some(None),
+            welcome_embed_color: None,
+            welcome_dm_enabled: None,
+            embed_title: None,
+            embed_description: None,
+            embed_author: None,
+            embed_image_url: None,
+            embed_thumbnail_url: None,
+            goodbye_enabled: None,
+            goodbye_channel_id: None,
+            goodbye_message: Some(None),
+            goodbye_embed_color: None,
+        })
+        .await
+        .expect("clearing a message is a valid patch");
+
+    assert_eq!(stored.welcome_message, None);
+    assert_eq!(stored.goodbye_message, None);
+}
+
+/// The other half of the same contract: absent still means "leave it alone", so a
+/// patch that only flips a toggle cannot wipe the text beside it.
+#[tokio::test]
+async fn an_absent_message_survives_a_patch() {
+    let store = store();
+    seed_config(&store, enabled_config());
+
+    let stored = UpdateWelcomeConfigUseCase::new(FakeWelcome::new(store))
+        .execute(UpdateWelcomeConfigCommand {
+            guild_id: GUILD,
+            welcome_enabled: Some(false),
+            welcome_channel_id: None,
+            welcome_message: None,
+            welcome_embed_color: None,
+            welcome_dm_enabled: None,
+            embed_title: None,
+            embed_description: None,
+            embed_author: None,
+            embed_image_url: None,
+            embed_thumbnail_url: None,
+            goodbye_enabled: None,
+            goodbye_channel_id: None,
+            goodbye_message: None,
+            goodbye_embed_color: None,
+        })
+        .await
+        .expect("the patch applies");
+
+    assert_eq!(
+        stored.welcome_message.as_deref(),
+        Some("Welcome {mention} to {guild}!")
+    );
 }
 
 // --- panels -----------------------------------------------------------------
@@ -658,6 +763,9 @@ async fn the_embed_card_travels_with_the_message() {
     let card = message.embed.expect("the card is attached");
     assert_eq!(card.title.as_deref(), Some("IMRNES Community"));
     assert_eq!(card.author.as_deref(), Some("imrnes.team"));
+    // The card's text is rendered like the content is: a placeholder in the
+    // description would otherwise post the brace to every member.
+    assert_eq!(card.description.as_deref(), Some("A place for Test Guild"));
     assert_eq!(
         card.image_url.as_deref(),
         Some("https://example.test/card.jpg")
