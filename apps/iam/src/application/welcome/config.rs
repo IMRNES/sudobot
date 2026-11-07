@@ -40,7 +40,8 @@ pub struct UpdateWelcomeConfigCommand {
     pub guild_id: u64,
     pub welcome_enabled: Option<bool>,
     pub welcome_channel_id: Option<Option<u64>>,
-    pub welcome_message: Option<String>,
+    /// `Some(Some(template))` replaces it, `Some(None)` clears it, `None` leaves it.
+    pub welcome_message: Option<Option<String>>,
     pub welcome_embed_color: Option<Option<i32>>,
     /// The shared embed card. `Some(None)` clears a field, `None` leaves it alone.
     pub embed_title: Option<Option<String>>,
@@ -51,7 +52,8 @@ pub struct UpdateWelcomeConfigCommand {
     pub welcome_dm_enabled: Option<bool>,
     pub goodbye_enabled: Option<bool>,
     pub goodbye_channel_id: Option<Option<u64>>,
-    pub goodbye_message: Option<String>,
+    /// `Some(Some(template))` replaces it, `Some(None)` clears it, `None` leaves it.
+    pub goodbye_message: Option<Option<String>>,
     pub goodbye_embed_color: Option<Option<i32>>,
 }
 
@@ -113,13 +115,19 @@ impl<W: WelcomeRepository> UpdateWelcomeConfigUseCase<W> {
             config.goodbye_embed_color = colour;
         }
 
-        // A message being set is validated; one being cleared (an empty string is
-        // rejected by the domain's own length rule) is not a template at all.
-        if let Some(message) = &command.welcome_message {
-            config.welcome_message = Some(validate_template(message)?);
+        // A message being set is validated; one being cleared is not a template at
+        // all. `null` is the only way to clear it — an empty string is rejected by
+        // the domain's own length rule, and "absent" means "leave it alone", so a
+        // patch that could not say `null` could never remove a message.
+        match &command.welcome_message {
+            Some(Some(message)) => config.welcome_message = Some(validate_template(message)?),
+            Some(None) => config.welcome_message = None,
+            None => {}
         }
-        if let Some(message) = &command.goodbye_message {
-            config.goodbye_message = Some(validate_template(message)?);
+        match &command.goodbye_message {
+            Some(Some(message)) => config.goodbye_message = Some(validate_template(message)?),
+            Some(None) => config.goodbye_message = None,
+            None => {}
         }
 
         let stored = self.welcome.upsert_config(config).await?;
