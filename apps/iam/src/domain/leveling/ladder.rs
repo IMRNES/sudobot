@@ -14,11 +14,17 @@
 //! curve steepens, so `Apprentice` is a first-month badge and `IMMORTAL` is a
 //! resident's. The spacing here is the design, not an artefact of the curve.
 //!
-//! The thresholds were tightened in 2026-10: the original ladder reached
-//! `IMMORTAL` at level 2000, which the Mrn curve crosses in a few hundred
-//! messages. The gaps now widen roughly geometrically, so the middle rungs are
-//! measured in thousands of messages rather than hundreds and the top rung is
-//! something a member works toward for months rather than days.
+//! The thresholds were retuned in 2026-11. The previous revision reached
+//! `IMMORTAL` at level 10000, which sounds like a long climb but is not a
+//! climb at all: the Mrn curve costs `5l² + 50l + 100` per level, so total XP is
+//! cubic in level and level 10000 is 1.6 trillion XP. Nothing between `Seeker`
+//! (level 75) and the top was reachable in a human lifetime, which made the top
+//! sixteen rungs decoration rather than a ladder.
+//!
+//! The rungs above `Seeker` are therefore packed into level 85–300. Every step
+//! is reachable, the top one is a genuine long-term goal (roughly 13 000 hours
+//! of voice, or 2.3 million messages), and the early rungs keep the spacing that
+//! already worked.
 //!
 //! The first rung is level 0, which is where everybody starts. A level-0 reward
 //! therefore never fires from a level *change* — nobody levels up into it — and is
@@ -119,87 +125,87 @@ pub const LADDER: [LadderRung; 21] = [
         colour: 0x2ECC71,
     },
     LadderRung {
-        level: 150,
+        level: 85,
         name: "Visionary",
         colour: 0x16A085,
     },
     LadderRung {
-        level: 300,
+        level: 95,
         name: "Voyager",
         colour: 0x1ABC9C,
     },
     LadderRung {
-        level: 450,
+        level: 105,
         name: "Adept",
         colour: 0x3498DB,
     },
     LadderRung {
-        level: 600,
+        level: 115,
         name: "Hacker",
         colour: 0x2980B9,
     },
     LadderRung {
-        level: 900,
+        level: 125,
         name: "Mage",
         colour: 0x9B59B6,
     },
     LadderRung {
-        level: 1200,
+        level: 135,
         name: "Wizard",
         colour: 0x8E44AD,
     },
     LadderRung {
-        level: 1500,
+        level: 145,
         name: "Master",
         colour: 0xE67E22,
     },
     LadderRung {
-        level: 1800,
+        level: 155,
         name: "Guru",
         colour: 0xF39C12,
     },
     LadderRung {
-        level: 2200,
+        level: 165,
         name: "Legend",
         colour: 0xE74C3C,
     },
     LadderRung {
-        level: 2700,
+        level: 175,
         name: "Guardian",
         colour: 0xC0392B,
     },
     LadderRung {
-        level: 3300,
+        level: 190,
         name: "TITAN",
         colour: 0xD35400,
     },
     LadderRung {
-        level: 4000,
+        level: 205,
         name: "SAGE",
         colour: 0xF1C40F,
     },
     LadderRung {
-        level: 4800,
+        level: 220,
         name: "VANGUARD",
         colour: 0xFF6B35,
     },
     LadderRung {
-        level: 5700,
+        level: 235,
         name: "ASCENDED",
         colour: 0xFF4D6D,
     },
     LadderRung {
-        level: 6700,
+        level: 250,
         name: "DEITY",
         colour: 0xA855F7,
     },
     LadderRung {
-        level: 7800,
+        level: 275,
         name: "MYTHIC",
         colour: 0xF43F5E,
     },
     LadderRung {
-        level: 10000,
+        level: 300,
         name: "IMMORTAL",
         colour: 0xFFD700,
     },
@@ -245,23 +251,23 @@ mod tests {
         (10, "Apprentice"),
         (35, "Pathfinder"),
         (75, "Seeker"),
-        (150, "Visionary"),
-        (300, "Voyager"),
-        (450, "Adept"),
-        (600, "Hacker"),
-        (900, "Mage"),
-        (1200, "Wizard"),
-        (1500, "Master"),
-        (1800, "Guru"),
-        (2200, "Legend"),
-        (2700, "Guardian"),
-        (3300, "TITAN"),
-        (4000, "SAGE"),
-        (4800, "VANGUARD"),
-        (5700, "ASCENDED"),
-        (6700, "DEITY"),
-        (7800, "MYTHIC"),
-        (10000, "IMMORTAL"),
+        (85, "Visionary"),
+        (95, "Voyager"),
+        (105, "Adept"),
+        (115, "Hacker"),
+        (125, "Mage"),
+        (135, "Wizard"),
+        (145, "Master"),
+        (155, "Guru"),
+        (165, "Legend"),
+        (175, "Guardian"),
+        (190, "TITAN"),
+        (205, "SAGE"),
+        (220, "VANGUARD"),
+        (235, "ASCENDED"),
+        (250, "DEITY"),
+        (275, "MYTHIC"),
+        (300, "IMMORTAL"),
     ];
 
     #[test]
@@ -305,12 +311,12 @@ mod tests {
         assert_eq!(rung_for_level(35).unwrap().name, "Pathfinder");
         assert_eq!(rung_for_level(74).unwrap().name, "Pathfinder");
         assert_eq!(rung_for_level(75).unwrap().name, "Seeker");
-        assert_eq!(rung_for_level(149).unwrap().name, "Seeker");
-        assert_eq!(rung_for_level(150).unwrap().name, "Visionary");
-        assert_eq!(rung_for_level(299).unwrap().name, "Visionary");
-        assert_eq!(rung_for_level(300).unwrap().name, "Voyager");
-        assert_eq!(rung_for_level(9999).unwrap().name, "MYTHIC");
-        assert_eq!(rung_for_level(10000).unwrap().name, "IMMORTAL");
+        assert_eq!(rung_for_level(84).unwrap().name, "Seeker");
+        assert_eq!(rung_for_level(85).unwrap().name, "Visionary");
+        assert_eq!(rung_for_level(94).unwrap().name, "Visionary");
+        assert_eq!(rung_for_level(95).unwrap().name, "Voyager");
+        assert_eq!(rung_for_level(299).unwrap().name, "MYTHIC");
+        assert_eq!(rung_for_level(300).unwrap().name, "IMMORTAL");
         // Past the top rung the ladder saturates rather than running off the end.
         assert_eq!(rung_for_level(50_000).unwrap().name, "IMMORTAL");
     }
